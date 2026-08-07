@@ -1,11 +1,11 @@
 import os
-import base64
 import json
-from flask import Flask, request, jsonify
+import io
+
+from flask import Flask, request, jsonify, render_template
 from google import genai
 from google.genai import types
 from PIL import Image
-import io
 
 app = Flask(__name__)
 
@@ -13,7 +13,7 @@ app = Flask(__name__)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-SYSTEM_PROMPT = """Wewe ni mtaalamu wa upishi mwenye ujuzi wa vyakula vyote duniani - 
+SYSTEM_PROMPT = """Wewe ni mtaalamu wa upishi mwenye ujuzi wa vyakula vyote duniani -
 Kiafrika, Kiasia, Kizungu, Kiarabu, Kilatini, na kadhalika.
 
 Utapewa picha ya chakula kilichopikwa. Kazi yako:
@@ -33,8 +33,13 @@ Jibu LAZIMA liwe JSON pekee, muundo huu bila maandishi mengine yoyote:
   "tips": "ushauri wa ziada"
 }
 
-Kama huwezi kutambua chakula kwa uhakika, weka confidence "low" na jaribu 
+Kama huwezi kutambua chakula kwa uhakika, weka confidence "low" na jaribu
 kukisia kwa kutumia muonekano wake (rangi, umbo, viungo vinavyoonekana)."""
+
+
+@app.route("/")
+def home():
+    return render_template("index.html")
 
 
 @app.route("/api/identify-food", methods=["POST"])
