@@ -56,10 +56,9 @@ def identify_food():
     image_file = request.files["image"]
 
     try:
-        # Punguza size ya picha kabla ya kutuma (gharama na speed)
         img = Image.open(image_file.stream)
         img = img.convert("RGB")
-        img.thumbnail((1024, 1024))  # resize bila kuharibu ubora
+        img.thumbnail((1024, 1024))
 
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=85)
@@ -77,15 +76,34 @@ def identify_food():
             ),
         )
 
-        result = json.loads(response.text)
+        raw_text = response.text
+
+        if not raw_text:
+            return jsonify({
+                "error": "Gemini haikurudisha jibu lolote (labda picha haikutambulika au ilizuiwa na safety filter)"
+            }), 500
+
+        # Safisha kama Gemini alifunga JSON kwenye ```json fences
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
+            cleaned = cleaned.strip()
+
+        try:
+            result = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Rudisha raw text ili tuone tatizo ni nini
+            return jsonify({
+                "error": "Model imeshindwa kutoa JSON sahihi",
+                "raw_response": raw_text[:500]
+            }), 500
 
         # Hapa unaweza kuhifadhi PostgreSQL kama history
         # save_to_history(user_id, result)
 
         return jsonify(result), 200
 
-    except json.JSONDecodeError:
-        return jsonify({"error": "Model imeshindwa kutoa response sahihi, jaribu tena"}), 500
     except Exception as e:
         return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
 
