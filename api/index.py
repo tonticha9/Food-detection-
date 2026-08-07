@@ -25,7 +25,13 @@ Kiafrika, Kiasia, Kizungu, Kiarabu, Kilatini, na kadhalika.
 Utapewa picha ya chakula kilichopikwa. Kazi yako:
 1. Tambua jina la chakula (kama unakijua kwa uhakika)
 2. Toa orodha kamili ya ingredients zinazohitajika kukipika
-3. Toa hatua za kupika kutoka A mpaka Z, kwa njia rahisi kueleweka
+3. Toa NJIA MBILI TOFAUTI za kupika chakula hicho:
+   - "jiko_la_nyumbani": kwa kutumia jiko la kawaida la mkaa/gesi/umeme na sufuria/karai/chombo cha kawaida cha kupikia (bila oveni) - hii ni muhimu zaidi kwa watumiaji wengi Afrika Mashariki wasio na oveni
+   - "oveni": kwa yule mwenye oveni nyumbani (kama chakula kinahitaji kuoka)
+
+Kama chakula hakihitaji kuoka kabisa (mfano wali, supu, mchuzi), weka njia zote
+mbili ziwe sawa au eleza tu njia moja ya kawaida ya kupikia jikoni, na weka
+"oveni" kama null.
 
 Jibu LAZIMA liwe JSON pekee, muundo huu bila maandishi mengine yoyote:
 
@@ -34,8 +40,18 @@ Jibu LAZIMA liwe JSON pekee, muundo huu bila maandishi mengine yoyote:
   "confidence": "high/medium/low",
   "origin": "chakula hiki kinatoka wapi",
   "ingredients": ["kipimo + kiungo 1", "kipimo + kiungo 2"],
-  "steps": ["Hatua 1: ...", "Hatua 2: ..."],
-  "cooking_time": "muda wa kupika",
+  "cooking_methods": {
+    "jiko_la_nyumbani": {
+      "description": "Maelezo mafupi ya njia hii",
+      "steps": ["Hatua 1: ...", "Hatua 2: ..."],
+      "cooking_time": "muda wa kupika"
+    },
+    "oveni": {
+      "description": "Maelezo mafupi ya njia hii au null kama haihitajiki",
+      "steps": ["Hatua 1: ...", "Hatua 2: ..."],
+      "cooking_time": "muda wa kupika"
+    }
+  },
   "tips": "ushauri wa ziada"
 }
 
@@ -73,7 +89,7 @@ def identify_food():
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.3,
-                max_output_tokens=3048,
+                max_output_tokens=2048,
             ),
         )
 
@@ -84,7 +100,6 @@ def identify_food():
                 "error": "Gemini haikurudisha jibu lolote (labda picha haikutambulika au ilizuiwa na safety filter)"
             }), 500
 
-        # Safisha kama Gemini alifunga JSON kwenye ```json fences
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
@@ -94,10 +109,9 @@ def identify_food():
         try:
             result = json.loads(cleaned)
         except json.JSONDecodeError:
-            # Rudisha raw text ili tuone tatizo ni nini
             return jsonify({
                 "error": "Model imeshindwa kutoa JSON sahihi",
-                "raw_response": raw_text[:500]
+                "raw_response": raw_text[:800]
             }), 500
 
         # Hapa unaweza kuhifadhi PostgreSQL kama history
