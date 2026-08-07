@@ -8,9 +8,7 @@ const errorBox = document.getElementById("errorBox");
 const submitBtn = document.getElementById("submitBtn");
 const tryAgainBtn = document.getElementById("tryAgainBtn");
 
-let currentData = null;
-let currentMethod = "jiko_la_nyumbani";
-
+// Onyesha preview ya picha mara tu ikichaguliwa
 imageInput.addEventListener("change", () => {
   const file = imageInput.files[0];
   if (file) {
@@ -26,6 +24,7 @@ form.addEventListener("submit", async (e) => {
   const file = imageInput.files[0];
   if (!file) return;
 
+  // Reset UI
   result.style.display = "none";
   errorBox.style.display = "none";
   loading.style.display = "block";
@@ -47,8 +46,6 @@ form.addEventListener("submit", async (e) => {
       throw new Error((data.error || "Hitilafu imetokea") + debugInfo);
     }
 
-    currentData = data;
-    currentMethod = "jiko_la_nyumbani";
     displayResult(data);
   } catch (err) {
     errorBox.textContent = "❌ " + err.message;
@@ -63,6 +60,7 @@ function displayResult(data) {
   document.getElementById("foodName").textContent = data.food_name || "Haijulikani";
   document.getElementById("origin").textContent = data.origin ? `Asili: ${data.origin}` : "";
   document.getElementById("confidence").textContent = `Uhakika: ${data.confidence || "-"}`;
+  document.getElementById("cookingTime").textContent = data.cooking_time || "-";
   document.getElementById("tips").textContent = data.tips || "-";
 
   const ingredientsList = document.getElementById("ingredientsList");
@@ -73,52 +71,20 @@ function displayResult(data) {
     ingredientsList.appendChild(li);
   });
 
-  renderMethod(currentMethod);
-  result.style.display = "block";
-}
-
-function renderMethod(methodKey) {
-  if (!currentData || !currentData.cooking_methods) return;
-
-  const method = currentData.cooking_methods[methodKey];
-
-  document.querySelectorAll(".tab-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.method === methodKey);
-  });
-
   const stepsList = document.getElementById("stepsList");
-  const methodDescription = document.getElementById("methodDescription");
-  const cookingTime = document.getElementById("cookingTime");
-
-  if (!method) {
-    methodDescription.textContent = "Njia hii haihitajiki kwa chakula hiki.";
-    stepsList.innerHTML = "";
-    cookingTime.textContent = "-";
-    return;
-  }
-
-  methodDescription.textContent = method.description || "";
-  cookingTime.textContent = method.cooking_time || "-";
-
   stepsList.innerHTML = "";
-  (method.steps || []).forEach((step) => {
+  (data.steps || []).forEach((step) => {
     const li = document.createElement("li");
     li.textContent = step;
     stepsList.appendChild(li);
   });
-}
 
-document.addEventListener("click", (e) => {
-  if (e.target.classList.contains("tab-btn")) {
-    currentMethod = e.target.dataset.method;
-    renderMethod(currentMethod);
-  }
-});
+  result.style.display = "block";
+}
 
 tryAgainBtn.addEventListener("click", () => {
   form.reset();
   preview.style.display = "none";
   uploadText.style.display = "block";
   result.style.display = "none";
-  currentData = null;
 });
