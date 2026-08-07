@@ -42,7 +42,8 @@ form.addEventListener("submit", async (e) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "Hitilafu imetokea");
+      const debugInfo = data.raw_response ? `\n\nGemini alisema: ${data.raw_response}` : "";
+      throw new Error((data.error || "Hitilafu imetokea") + debugInfo);
     }
 
     displayResult(data);
