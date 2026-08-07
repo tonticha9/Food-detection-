@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tambua Chakula - Recipe Finder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <div class="container">
+    <h1>🍲 Tambua Chakula</h1>
+    <p class="subtitle">Piga picha ya chakula chochote duniani, upate jina, ingredients na jinsi ya kupika</p>
+
+    <form id="foodForm">
+      <label for="imageInput" class="upload-box">
+        <span id="uploadText">📷 Bonyeza kupiga/kupakia picha</span>
+        <img id="preview" style="display:none;" />
+      </label>
+      <input type="file" id="imageInput" name="image" accept="image/*" capture="environment" required>
+      <button type="submit" id="submitBtn">Tambua Chakula</button>
+    </form>
+
+    <div id="loading" style="display:none;">
+      <p>⏳ Inatambua chakula, subiri kidogo...</p>
+    </div>
+
+    <div id="result" style="display:none;">
+      <h2 id="foodName"></h2>
+      <p id="origin" class="origin"></p>
+      <p id="confidence" class="confidence"></p>
+
+      <h3>🧂 Ingredients</h3>
+      <ul id="ingredientsList"></ul>
+
+      <h3>👩‍🍳 Jinsi ya Kupika</h3>
+      <ol id="stepsList"></ol>
+
+      <p><strong>⏱ Muda wa kupika:</strong> <span id="cookingTime"></span></p>
+      <p class="tips"><strong>💡 Tip:</strong> <span id="tips"></span></p>
+
+      <button id="tryAgainBtn">Piga Picha Nyingine</button>
+    </div>
+
+    <div id="errorBox" style="display:none;" class="error"></div>
+  </div>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
