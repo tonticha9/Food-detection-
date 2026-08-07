@@ -7,7 +7,13 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-app = Flask(__name__)
+# Elekeza Flask kwenye templates/ na static/ zilizoko root ya project,
+# si ndani ya folder ya api/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
 # API key inatoka Environment Variable - KAMWE usiiandike hapa moja kwa moja
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
