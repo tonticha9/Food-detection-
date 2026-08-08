@@ -10,13 +10,63 @@ const tryAgainBtn = document.getElementById("tryAgainBtn");
 
 let currentData = null;
 let currentMethod = "jiko_kawaida";
+let compressedBlob = null;
 
-imageInput.addEventListener("change", () => {
+// Punguza ukubwa wa picha kwa Canvas kabla ya kutuma (huepusha error ya "Request Too Large")
+function compressImage(file, maxSize = 1024, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+
+    img.onload = () => {
+      let { width, height } = img;
+
+      if (width > height && width > maxSize) {
+        height = Math.round((height * maxSize) / width);
+        width = maxSize;
+      } else if (height > maxSize) {
+        width = Math.round((width * maxSize) / height);
+        height = maxSize;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Imeshindwa kubana picha"));
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+    img.onerror = reject;
+
+    reader.readAsDataURL(file);
+  });
+}
+
+imageInput.addEventListener("change", async () => {
   const file = imageInput.files[0];
-  if (file) {
-    preview.src = URL.createObjectURL(file);
-    preview.style.display = "block";
-    uploadText.style.display = "none";
+  if (!file) return;
+
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = "block";
+  uploadText.style.display = "none";
+
+  try {
+    compressedBlob = await compressImage(file);
+  } catch (err) {
+    compressedBlob = file; // fallback: tumia ile ya awali kama compression itashindikana
   }
 });
 
@@ -32,13 +82,19 @@ form.addEventListener("submit", async (e) => {
   submitBtn.disabled = true;
 
   const formData = new FormData();
-  formData.append("image", file);
+  formData.append("image", compressedBlob || file, "food.jpg");
 
   try {
     const response = await fetch("/api/identify-food", {
       method: "POST",
       body: formData,
     });
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await response.text();
+      throw new Error("Picha ni kubwa mno au server imeshindwa kujibu. Jaribu picha nyingine.");
+    }
 
     const data = await response.json();
 
@@ -121,4 +177,5 @@ tryAgainBtn.addEventListener("click", () => {
   uploadText.style.display = "block";
   result.style.display = "none";
   currentData = null;
+  compressedBlob = null;
 });
