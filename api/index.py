@@ -1,7 +1,9 @@
 import os
 import json
 import io
+import datetime
 
+import requests
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from google import genai
 from google.genai import types
@@ -16,28 +18,50 @@ app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-SYSTEM_PROMPT = """Wewe ni mtaalamu wa upishi na lishe mwenye ujuzi wa vyakula
-vyote duniani, unayefundisha wapishi wapya kwa ufasaha na uelewa mzuri.
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 
-Utapewa picha ya chakula. Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI
-(vikombe, vijiko, gramu, kilo - si maneno ya jumla tu), toa makadirio ya
-lishe (calories, protini, wanga, mafuta kwa sahani moja ya kawaida), kisha
-toa NJIA MBILI za kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida, bila
-oveni/vifaa maalum) na "njia_ya_kisasa" (oveni, blender, air fryer au vifaa
-vya kisasa kama vinafaa kwa chakula hicho, au null kama havihitajiki).
+REST_URL = f"{SUPABASE_URL}/rest/v1"
+AUTH_URL = f"{SUPABASE_URL}/auth/v1"
+
+SERVICE_HEADERS = {
+    "apikey": SUPABASE_SERVICE_KEY,
+    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+    "Content-Type": "application/json",
+}
+
+LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
+
+SYSTEM_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi na lishe mwenye ujuzi wa
+vyakula vyote duniani, unayefundisha wapishi wapya kwa ufasaha na uelewa mzuri.
+
+Andika JIBU LOTE kwa lugha ya {lang_name} pekee (majina ya vyakula yanaweza
+kubaki kwa lugha asilia kama hayana tafsiri nzuri).
+
+Utapewa picha ya chakula. Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI,
+makadirio ya lishe (calories, protini, wanga, mafuta), kisha toa NJIA MBILI za
+kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida) na "njia_ya_kisasa"
+(oveni/blender/air fryer, au null kama havihitajiki).
 
 MWONGOZO WA UBORA:
-- Kila kiungo lazima kiwe na kipimo (mfano "Vikombe 2 vya unga wa ngano")
+- Kila kiungo lazima kiwe na kipimo
 - Ingredients: vitu 6 hadi 10
-- Nutrition: makadirio ya wastani kwa sahani moja ya kawaida (si sahihi kabisa,
-  ni makadirio tu - sema hivyo kwenye nutrition_note)
-- Steps kwa kila njia: hatua 5 hadi 8
-- Kila hatua iwe sentensi 1-2 zenye maelezo ya JINSI na KWA NINI, maneno 15-30
-- Description ya kila njia: sentensi 1 fupi
+- Steps kwa kila njia: hatua 5 hadi 8, maneno 15-30 kila hatua
 - Tips: nasaha 1-2 fupi
 
-Andika kwa Kiswahili sanifu, rahisi kueleweka na mtu asiyejua kupika."""
-
+Jibu JSON pekee, muundo huu:
+{{
+  "food_name": "jina",
+  "confidence": "high/medium/low",
+  "origin": "asili",
+  "ingredients": ["kipimo + kiungo"],
+  "nutrition": {{"calories":"","protein":"","carbs":"","fat":"","nutrition_note":""}},
+  "cooking_methods": {{
+    "jiko_kawaida": {{"description":"","steps":[""],"cooking_time":""}},
+    "njia_ya_kisasa": {{"description":"","steps":[""],"cooking_time":""}}
+  }},
+  "tips": ""
+}}"""
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -45,10 +69,7 @@ RESPONSE_SCHEMA = {
         "food_name": {"type": "string"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "origin": {"type": "string"},
-        "ingredients": {
-            "type": "array",
-            "items": {"type": "string"}
-        },
+        "ingredients": {"type": "array", "items": {"type": "string"}},
         "nutrition": {
             "type": "object",
             "properties": {
@@ -90,6 +111,100 @@ RESPONSE_SCHEMA = {
 }
 
 
+def get_authenticated_user(req):
+    auth_header = req.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ", 1)[1]
+    resp = requests.get(
+        f"{AUTH_URL}/user",
+        headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return None
+    return resp.json()
+
+
+def get_setting(key, default=""):
+    resp = requests.get(
+        f"{REST_URL}/app_settings",
+        headers=SERVICE_HEADERS,
+        params={"key": f"eq.{key}", "select": "value"},
+        timeout=10,
+    )
+    if resp.status_code == 200 and resp.json():
+        return resp.json()[0]["value"]
+    return default
+
+
+def get_or_create_profile(user_id, full_name=""):
+    resp = requests.get(
+        f"{REST_URL}/profiles",
+        headers=SERVICE_HEADERS,
+        params={"id": f"eq.{user_id}", "select": "*"},
+        timeout=10,
+    )
+    rows = resp.json() if resp.status_code == 200 else []
+    if rows:
+        return rows[0]
+
+    default_limit = get_setting("default_message_limit", "5")
+    payload = {
+        "id": user_id,
+        "full_name": full_name or "Mtumiaji",
+        "messages_used_today": 0,
+        "messages_limit": int(default_limit),
+        "bonus_messages": 0,
+        "last_reset_date": str(datetime.date.today()),
+        "referral_count": 0,
+    }
+    create_resp = requests.post(
+        f"{REST_URL}/profiles",
+        headers={**SERVICE_HEADERS, "Prefer": "return=representation"},
+        json=payload,
+        timeout=10,
+    )
+    if create_resp.status_code in (200, 201):
+        data = create_resp.json()
+        return data[0] if isinstance(data, list) else data
+    return payload
+
+
+def reset_quota_if_new_day(profile):
+    today = str(datetime.date.today())
+    if profile.get("last_reset_date") != today:
+        requests.patch(
+            f"{REST_URL}/profiles",
+            headers=SERVICE_HEADERS,
+            params={"id": f"eq.{profile['id']}"},
+            json={"messages_used_today": 0, "last_reset_date": today},
+            timeout=10,
+        )
+        profile["messages_used_today"] = 0
+        profile["last_reset_date"] = today
+    return profile
+
+
+def increment_usage(user_id, current_used):
+    requests.patch(
+        f"{REST_URL}/profiles",
+        headers=SERVICE_HEADERS,
+        params={"id": f"eq.{user_id}"},
+        json={"messages_used_today": current_used + 1},
+        timeout=10,
+    )
+
+
+def save_history(user_id, food_name, data):
+    requests.post(
+        f"{REST_URL}/history",
+        headers=SERVICE_HEADERS,
+        json={"user_id": user_id, "food_name": food_name, "data": data},
+        timeout=10,
+    )
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -105,10 +220,57 @@ def service_worker():
     return send_from_directory(STATIC_DIR, "sw.js", mimetype="application/javascript")
 
 
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    return jsonify({
+        "supabase_url": SUPABASE_URL,
+        "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
+    })
+
+
+@app.route("/api/profile", methods=["GET"])
+def profile():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Haujaingia (login required)"}), 401
+
+    full_name = user.get("user_metadata", {}).get("full_name", "")
+    prof = get_or_create_profile(user["id"], full_name)
+    prof = reset_quota_if_new_day(prof)
+
+    remaining = prof["messages_limit"] + prof.get("bonus_messages", 0) - prof["messages_used_today"]
+    return jsonify({
+        "full_name": prof.get("full_name"),
+        "messages_used_today": prof["messages_used_today"],
+        "messages_limit": prof["messages_limit"],
+        "bonus_messages": prof.get("bonus_messages", 0),
+        "remaining": max(0, remaining),
+    })
+
+
 @app.route("/api/identify-food", methods=["POST"])
 def identify_food():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
+
+    full_name = user.get("user_metadata", {}).get("full_name", "")
+    prof = get_or_create_profile(user["id"], full_name)
+    prof = reset_quota_if_new_day(prof)
+
+    total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
+    if prof["messages_used_today"] >= total_allowed:
+        return jsonify({
+            "error": "quota_exceeded",
+            "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
+            "share_url": "https://world-food-scanner.vercel.app"
+        }), 429
+
     if "image" not in request.files:
         return jsonify({"error": "Hakuna picha iliyotumwa"}), 400
+
+    lang_code = request.form.get("lang", "sw")
+    lang_name = LANG_NAMES.get(lang_code, "Kiswahili")
 
     image_file = request.files["image"]
 
@@ -121,11 +283,13 @@ def identify_food():
         img.save(buffer, format="JPEG", quality=85)
         image_bytes = buffer.getvalue()
 
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
+
         response = client.models.generate_content(
             model="gemini-3.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                SYSTEM_PROMPT,
+                system_prompt,
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -136,32 +300,71 @@ def identify_food():
         )
 
         raw_text = response.text
-        finish_reason = None
-        try:
-            finish_reason = str(response.candidates[0].finish_reason)
-        except Exception:
-            pass
-
         if not raw_text:
-            return jsonify({
-                "error": f"Gemini haikurudisha jibu (finish_reason: {finish_reason})"
-            }), 500
+            return jsonify({"error": "Gemini haikurudisha jibu"}), 500
 
         try:
             result = json.loads(raw_text)
         except json.JSONDecodeError:
-            try:
-                result = json.loads(raw_text, strict=False)
-            except json.JSONDecodeError:
-                return jsonify({
-                    "error": f"Model imeshindwa kutoa JSON sahihi (finish_reason: {finish_reason}, urefu: {len(raw_text)} herufi)",
-                    "raw_response": raw_text[:2000]
-                }), 500
+            result = json.loads(raw_text, strict=False)
+
+        increment_usage(user["id"], prof["messages_used_today"])
+        save_history(user["id"], result.get("food_name", ""), result)
 
         return jsonify(result), 200
 
     except Exception as e:
         return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
+
+
+@app.route("/api/history", methods=["GET"])
+def get_history():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    resp = requests.get(
+        f"{REST_URL}/history",
+        headers=SERVICE_HEADERS,
+        params={"user_id": f"eq.{user['id']}", "select": "*", "order": "created_at.desc", "limit": "50"},
+        timeout=10,
+    )
+    return jsonify(resp.json() if resp.status_code == 200 else [])
+
+
+@app.route("/api/favorites", methods=["GET", "POST", "DELETE"])
+def favorites():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+
+    if request.method == "GET":
+        resp = requests.get(
+            f"{REST_URL}/favorites",
+            headers=SERVICE_HEADERS,
+            params={"user_id": f"eq.{user['id']}", "select": "*", "order": "created_at.desc"},
+            timeout=10,
+        )
+        return jsonify(resp.json() if resp.status_code == 200 else [])
+
+    if request.method == "POST":
+        body = request.get_json()
+        requests.post(
+            f"{REST_URL}/favorites",
+            headers=SERVICE_HEADERS,
+            json={"user_id": user["id"], "food_name": body.get("food_name"), "data": body.get("data")},
+            timeout=10,
+        )
+        return jsonify({"ok": True})
+
+    if request.method == "DELETE":
+        food_name = request.args.get("food_name", "")
+        requests.delete(
+            f"{REST_URL}/favorites",
+            headers=SERVICE_HEADERS,
+            params={"user_id": f"eq.{user['id']}", "food_name": f"eq.{food_name}"},
+            timeout=10,
+        )
+        return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
