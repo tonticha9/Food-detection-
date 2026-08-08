@@ -197,3 +197,21 @@ tryAgainBtn.addEventListener("click", () => {
   compressedBlob = null;
   hasImage = false;
 });
+
+const aboutBtn = document.getElementById("aboutBtn");
+const closeAboutBtn = document.getElementById("closeAboutBtn");
+const aboutModal = document.getElementById("aboutModal");
+
+aboutBtn.addEventListener("click", () => {
+  aboutModal.style.display = "flex";
+});
+
+closeAboutBtn.addEventListener("click", () => {
+  aboutModal.style.display = "none";
+});
+
+aboutModal.addEventListener("click", (e) => {
+  if (e.target === aboutModal) {
+    aboutModal.style.display = "none";
+  }
+});
