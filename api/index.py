@@ -1,6 +1,7 @@
 import os
 import json
 import io
+import re
 
 from flask import Flask, request, jsonify, render_template
 from google import genai
@@ -59,6 +60,22 @@ Jibu JSON pekee, muundo huu, bila maandishi mengine:
 }"""
 
 
+def extract_json_block(text):
+    """Chukua JSON kamili ya kwanza kutoka kwenye text kwa kufuatilia { }."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -94,10 +111,15 @@ def identify_food():
         )
 
         raw_text = response.text
+        finish_reason = None
+        try:
+            finish_reason = str(response.candidates[0].finish_reason)
+        except Exception:
+            pass
 
         if not raw_text:
             return jsonify({
-                "error": "Gemini haikurudisha jibu lolote (labda picha haikutambulika au ilizuiwa na safety filter)"
+                "error": f"Gemini haikurudisha jibu (finish_reason: {finish_reason})"
             }), 500
 
         cleaned = raw_text.strip()
@@ -106,12 +128,26 @@ def identify_food():
             cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
             cleaned = cleaned.strip()
 
+        # Jaribu 1: parse moja kwa moja
+        result = None
         try:
             result = json.loads(cleaned)
         except json.JSONDecodeError:
+            pass
+
+        # Jaribu 2: chukua JSON block kamili kwa bracket-matching
+        if result is None:
+            block = extract_json_block(cleaned)
+            if block:
+                try:
+                    result = json.loads(block)
+                except json.JSONDecodeError:
+                    pass
+
+        if result is None:
             return jsonify({
-                "error": "Model imeshindwa kutoa JSON sahihi, jaribu tena",
-                "raw_response": raw_text[:800]
+                "error": f"Model imeshindwa kutoa JSON sahihi (finish_reason: {finish_reason}, urefu: {len(raw_text)} herufi)",
+                "raw_response": raw_text[:2000]
             }), 500
 
         return jsonify(result), 200
