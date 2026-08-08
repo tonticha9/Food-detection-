@@ -1,0 +1,13 @@
+{
+  "name": "Tambua Chakula",
+  "short_name": "Tambua Chakula",
+  "description": "Piga picha ya chakula chochote duniani, pata jina, ingredients na jinsi ya kupika",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff8f0",
+  "theme_color": "#ff9800",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
