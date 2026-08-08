@@ -1,5 +1,8 @@
 const form = document.getElementById("foodForm");
-const imageInput = document.getElementById("imageInput");
+const cameraInput = document.getElementById("cameraInput");
+const galleryInput = document.getElementById("galleryInput");
+const cameraBtn = document.getElementById("cameraBtn");
+const galleryBtn = document.getElementById("galleryBtn");
 const preview = document.getElementById("preview");
 const uploadText = document.getElementById("uploadText");
 const loading = document.getElementById("loading");
@@ -11,8 +14,9 @@ const tryAgainBtn = document.getElementById("tryAgainBtn");
 let currentData = null;
 let currentMethod = "jiko_kawaida";
 let compressedBlob = null;
+let hasImage = false;
 
-// Punguza ukubwa wa picha kwa Canvas kabla ya kutuma (huepusha error ya "Request Too Large")
+// Punguza ukubwa wa picha kwa Canvas kabla ya kutuma
 function compressImage(file, maxSize = 1024, quality = 0.75) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -55,26 +59,40 @@ function compressImage(file, maxSize = 1024, quality = 0.75) {
   });
 }
 
-imageInput.addEventListener("change", async () => {
-  const file = imageInput.files[0];
+async function handleFileSelected(file) {
   if (!file) return;
 
   preview.src = URL.createObjectURL(file);
   preview.style.display = "block";
   uploadText.style.display = "none";
+  hasImage = true;
 
   try {
     compressedBlob = await compressImage(file);
   } catch (err) {
-    compressedBlob = file; // fallback: tumia ile ya awali kama compression itashindikana
+    compressedBlob = file;
   }
+}
+
+cameraBtn.addEventListener("click", () => cameraInput.click());
+galleryBtn.addEventListener("click", () => galleryInput.click());
+
+cameraInput.addEventListener("change", () => {
+  handleFileSelected(cameraInput.files[0]);
+});
+
+galleryInput.addEventListener("change", () => {
+  handleFileSelected(galleryInput.files[0]);
 });
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  const file = imageInput.files[0];
-  if (!file) return;
+  if (!hasImage || !compressedBlob) {
+    errorBox.textContent = "❌ Tafadhali chagua au piga picha kwanza";
+    errorBox.style.display = "block";
+    return;
+  }
 
   result.style.display = "none";
   errorBox.style.display = "none";
@@ -82,7 +100,7 @@ form.addEventListener("submit", async (e) => {
   submitBtn.disabled = true;
 
   const formData = new FormData();
-  formData.append("image", compressedBlob || file, "food.jpg");
+  formData.append("image", compressedBlob, "food.jpg");
 
   try {
     const response = await fetch("/api/identify-food", {
@@ -92,7 +110,6 @@ form.addEventListener("submit", async (e) => {
 
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) {
-      const text = await response.text();
       throw new Error("Picha ni kubwa mno au server imeshindwa kujibu. Jaribu picha nyingine.");
     }
 
@@ -178,4 +195,5 @@ tryAgainBtn.addEventListener("click", () => {
   result.style.display = "none";
   currentData = null;
   compressedBlob = null;
+  hasImage = false;
 });
