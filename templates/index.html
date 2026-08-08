@@ -7,15 +7,56 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff9800">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
+  <!-- LANGUAGE SELECTOR (mara ya kwanza) -->
+  <div id="langModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <h3>🌍 Chagua Lugha / Choose Language</h3>
+      <div class="lang-options">
+        <button type="button" class="lang-option-btn" data-lang="sw">🇹🇿 Kiswahili</button>
+        <button type="button" class="lang-option-btn" data-lang="en">🇬🇧 English</button>
+        <button type="button" class="lang-option-btn" data-lang="fr">🇫🇷 Français</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTH MODAL (Signup / Login) -->
+  <div id="authModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <h3 id="authTitle">🔐 Ingia</h3>
+
+      <div id="authError" class="auth-error" style="display:none;"></div>
+
+      <input type="text" id="authFullName" placeholder="Jina lako kamili" style="display:none;">
+      <input type="email" id="authEmail" placeholder="Barua pepe (email)">
+      <input type="password" id="authPassword" placeholder="Password">
+
+      <button type="button" id="authSubmitBtn">Ingia</button>
+
+      <p class="auth-switch">
+        <span id="authSwitchText">Huna akaunti?</span>
+        <a href="#" id="authSwitchLink">Jisajili</a>
+      </p>
+    </div>
+  </div>
+
   <div class="container">
-    <h1>🍲 Tambua Chakula</h1>
+    <div class="top-bar">
+      <h1>🍲 Tambua Chakula</h1>
+      <button type="button" id="userMenuBtn" class="user-menu-btn">👤</button>
+    </div>
     <p class="subtitle">Piga picha ya chakula chochote duniani, upate jina, ingredients na jinsi ya kupika</p>
+
+    <div id="quotaBar" class="quota-bar" style="display:none;">
+      <span id="quotaText"></span>
+    </div>
 
     <div class="page-tabs">
       <button type="button" class="page-tab-btn active" data-page="scan">📷 Tambua</button>
+      <button type="button" class="page-tab-btn" data-page="pro">🧑‍🍳 Nina Viungo</button>
       <button type="button" class="page-tab-btn" data-page="history">🕓 Historia</button>
       <button type="button" class="page-tab-btn" data-page="favorites">⭐ Vipendwa</button>
     </div>
@@ -83,6 +124,21 @@
       <div id="errorBox" style="display:none;" class="error"></div>
     </section>
 
+    <section id="proPage" class="page" style="display:none;">
+      <h3>🧑‍🍳 Nina Viungo Hivi, Nipike Nini?</h3>
+      <p class="pro-subtitle">Andika viungo ulivyonavyo nyumbani, tutakupendekezea vyakula unavyoweza kupika.</p>
+      <textarea id="proIngredients" rows="3" placeholder="Mfano: unga wa ngano, mafuta, sukari, mayai..."></textarea>
+      <button type="button" id="proSubmitBtn">Tafuta Mapendekezo</button>
+
+      <div id="proLoading" style="display:none;">
+        <div class="spinner"></div>
+        <p>🧑‍🍳 Inatafuta mapendekezo...</p>
+      </div>
+
+      <div id="proResults" class="pro-results"></div>
+      <div id="proError" style="display:none;" class="error"></div>
+    </section>
+
     <section id="historyPage" class="page" style="display:none;">
       <h3>🕓 Historia ya Vyakula</h3>
       <div id="historyList" class="list-grid"></div>
@@ -104,18 +160,7 @@
       <div class="modal-box">
         <button type="button" id="closeAboutBtn" class="modal-close">✕</button>
         <h3>👨‍💻 Kuhusu App Hii</h3>
-        <p>
-          App hii iliundwa na <strong>Braiton Living</strong> — mtengenezaji wa
-          programu kutoka Tanzania, akitumia fursa za teknolojia ya AI kuleta
-          suluhisho la vitendo kwa jamii. Lengo ni kuwezesha mtu yeyote,
-          popote alipo, kupata maelekezo sahihi ya kupika chakula chochote
-          duniani kwa lugha anayoielewa vizuri.
-        </p>
-        <p>
-          Mradi huu ni sehemu ya juhudi za kuleta ubunifu wa kiteknolojia
-          karibu na watu wa kawaida — bila gharama kubwa, bila utata, moja
-          kwa moja kutoka kwenye simu mkononi.
-        </p>
+        <p>App hii iliundwa na <strong>Braiton Living</strong> — mtengenezaji wa programu kutoka Tanzania, akitumia fursa za teknolojia ya AI kuleta suluhisho la vitendo kwa jamii.</p>
       </div>
     </div>
 
@@ -123,6 +168,20 @@
       <div class="modal-box modal-view">
         <button type="button" id="closeViewBtn" class="modal-close">✕</button>
         <div id="viewContent"></div>
+      </div>
+    </div>
+
+    <div id="userMenuModal" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+        <button type="button" id="closeUserMenuBtn" class="modal-close">✕</button>
+        <h3 id="userMenuName">👤</h3>
+        <p class="origin">Lugha ya sasa:</p>
+        <div class="lang-options">
+          <button type="button" class="lang-option-btn small" data-lang="sw">🇹🇿 Sw</button>
+          <button type="button" class="lang-option-btn small" data-lang="en">🇬🇧 En</button>
+          <button type="button" class="lang-option-btn small" data-lang="fr">🇫🇷 Fr</button>
+        </div>
+        <button type="button" id="logoutBtn" class="logout-btn">Toka (Logout)</button>
       </div>
     </div>
   </div>
