@@ -1,146 +1,87 @@
-import os
-import json
-import io
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tambua Chakula - Recipe Finder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
 
-from flask import Flask, request, jsonify, render_template
-from google import genai
-from google.genai import types
-from PIL import Image
+  <div class="container">
+    <h1>🍲 Tambua Chakula</h1>
+    <p class="subtitle">Piga picha ya chakula chochote duniani, upate jina, ingredients na jinsi ya kupika</p>
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+    <form id="foodForm">
+      <label for="cameraInput" class="upload-box">
+        <span id="uploadText">📷 Bonyeza kupiga/kupakia picha</span>
+        <img id="preview" style="display:none;" />
+      </label>
 
-app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
+      <input type="file" id="cameraInput" name="cameraImage" accept="image/*" capture="environment" style="display:none;">
+      <input type="file" id="galleryInput" name="galleryImage" accept="image/*" style="display:none;">
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=GEMINI_API_KEY)
+      <div class="button-row">
+        <button type="button" id="cameraBtn">📷 Piga Picha</button>
+        <button type="button" id="galleryBtn">🖼️ Chagua kwenye Gallery</button>
+      </div>
 
-SYSTEM_PROMPT = """Wewe ni mtaalamu wa upishi mwenye ujuzi wa vyakula vyote duniani,
-unayefundisha wapishi wapya kwa ufasaha na uelewa mzuri.
+      <button type="submit" id="submitBtn">Tambua Chakula</button>
+    </form>
 
-Utapewa picha ya chakula. Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI
-(vikombe, vijiko, gramu, kilo - si maneno ya jumla tu), kisha toa NJIA MBILI za
-kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida, bila oveni/vifaa maalum)
-na "njia_ya_kisasa" (oveni, blender, air fryer au vifaa vya kisasa kama
-vinafaa kwa chakula hicho, au null kama havihitajiki).
+    <div id="loading" style="display:none;">
+      <p>⏳ Inatambua chakula, subiri kidogo...</p>
+    </div>
 
-MWONGOZO WA UBORA:
-- Kila kiungo lazima kiwe na kipimo (mfano "Vikombe 2 vya unga wa ngano")
-- Ingredients: vitu 6 hadi 10
-- Steps kwa kila njia: hatua 5 hadi 8
-- Kila hatua iwe sentensi 1-2 zenye maelezo ya JINSI na KWA NINI, maneno 15-30
-- Description ya kila njia: sentensi 1 fupi
-- Tips: nasaha 1-2 fupi
+    <div id="result" style="display:none;">
+      <h2 id="foodName"></h2>
+      <p id="origin" class="origin"></p>
+      <p id="confidence" class="confidence"></p>
 
-Andika kwa Kiswahili sanifu, rahisi kueleweka na mtu asiyejua kupika."""
+      <h3>🧂 Ingredients</h3>
+      <ul id="ingredientsList"></ul>
 
+      <h3>👩‍🍳 Jinsi ya Kupika</h3>
+      <div class="method-tabs">
+        <button type="button" class="tab-btn active" data-method="jiko_kawaida">🔥 Jiko la Kawaida</button>
+        <button type="button" class="tab-btn" data-method="njia_ya_kisasa">⚡ Njia ya Kisasa</button>
+      </div>
+      <p id="methodDescription" class="method-desc"></p>
+      <ol id="stepsList"></ol>
+      <p><strong>⏱ Muda wa kupika:</strong> <span id="cookingTime"></span></p>
 
-# Schema hii inamlazimisha Gemini kufuata muundo sahihi wa JSON kikamilifu,
-# badala ya kutegemea maelekezo ya maandishi tu (hii inazuia JSON kuharibika)
-RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "food_name": {"type": "string"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "origin": {"type": "string"},
-        "ingredients": {
-            "type": "array",
-            "items": {"type": "string"}
-        },
-        "cooking_methods": {
-            "type": "object",
-            "properties": {
-                "jiko_kawaida": {
-                    "type": "object",
-                    "properties": {
-                        "description": {"type": "string"},
-                        "steps": {"type": "array", "items": {"type": "string"}},
-                        "cooking_time": {"type": "string"},
-                    },
-                    "required": ["description", "steps", "cooking_time"],
-                },
-                "njia_ya_kisasa": {
-                    "type": "object",
-                    "nullable": True,
-                    "properties": {
-                        "description": {"type": "string"},
-                        "steps": {"type": "array", "items": {"type": "string"}},
-                        "cooking_time": {"type": "string"},
-                    },
-                },
-            },
-            "required": ["jiko_kawaida"],
-        },
-        "tips": {"type": "string"},
-    },
-    "required": ["food_name", "confidence", "origin", "ingredients", "cooking_methods", "tips"],
-}
+      <p class="tips"><strong>💡 Tip:</strong> <span id="tips"></span></p>
 
+      <button id="tryAgainBtn">Piga Picha Nyingine</button>
+    </div>
 
-@app.route("/")
-def home():
-    return render_template("index.html")
+    <div id="errorBox" style="display:none;" class="error"></div>
 
+    <footer class="footer">
+      <button type="button" id="aboutBtn" class="about-btn">👨‍💻 Kuhusu App Hii</button>
+      <p>Imetengenezwa kwa ❤️ na Braiton Living &middot; Tanzania</p>
+    </footer>
 
-@app.route("/api/identify-food", methods=["POST"])
-def identify_food():
-    if "image" not in request.files:
-        return jsonify({"error": "Hakuna picha iliyotumwa"}), 400
+    <div id="aboutModal" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+        <button type="button" id="closeAboutBtn" class="modal-close">✕</button>
+        <h3>👨‍💻 Kuhusu App Hii</h3>
+        <p>
+          App hii iliundwa na <strong>Braiton Living</strong> — mtengenezaji wa
+          programu kutoka Tanzania, akitumia fursa za teknolojia ya AI kuleta
+          suluhisho la vitendo kwa jamii. Lengo ni kuwezesha mtu yeyote,
+          popote alipo, kupata maelekezo sahihi ya kupika chakula chochote
+          duniani kwa lugha anayoielewa vizuri.
+        </p>
+        <p>
+          Mradi huu ni sehemu ya juhudi za kuleta ubunifu wa kiteknolojia
+          karibu na watu wa kawaida — bila gharama kubwa, bila utata, moja
+          kwa moja kutoka kwenye simu mkononi.
+        </p>
+      </div>
+    </div>
+  </div>
 
-    image_file = request.files["image"]
-
-    try:
-        img = Image.open(image_file.stream)
-        img = img.convert("RGB")
-        img.thumbnail((1024, 1024))
-
-        buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
-        image_bytes = buffer.getvalue()
-
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                SYSTEM_PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=RESPONSE_SCHEMA,
-                temperature=0.3,
-                max_output_tokens=12000,
-            ),
-        )
-
-        raw_text = response.text
-        finish_reason = None
-        try:
-            finish_reason = str(response.candidates[0].finish_reason)
-        except Exception:
-            pass
-
-        if not raw_text:
-            return jsonify({
-                "error": f"Gemini haikurudisha jibu (finish_reason: {finish_reason})"
-            }), 500
-
-        try:
-            result = json.loads(raw_text)
-        except json.JSONDecodeError:
-            try:
-                result = json.loads(raw_text, strict=False)
-            except json.JSONDecodeError:
-                return jsonify({
-                    "error": f"Model imeshindwa kutoa JSON sahihi (finish_reason: {finish_reason}, urefu: {len(raw_text)} herufi)",
-                    "raw_response": raw_text[:2000]
-                }), 500
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
