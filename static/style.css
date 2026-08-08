@@ -110,30 +110,70 @@ button {
   margin-bottom: 10px;
 }
 
-.about-section {
-  margin-top: 32px;
-  background: white;
-  padding: 18px;
-  border-radius: 12px;
-  border-left: 4px solid #ff9800;
-}
-
-.about-section h3 {
-  margin-bottom: 10px;
-  color: #d35400;
-}
-
-.about-section p {
-  font-size: 13.5px;
-  color: #555;
-  line-height: 1.6;
-  margin-bottom: 10px;
-}
-
 .footer {
   text-align: center;
-  margin-top: 20px;
+  margin-top: 32px;
   padding: 16px 0 30px;
   color: #999;
   font-size: 12px;
+}
+
+.about-btn {
+  background: transparent;
+  color: #d35400;
+  border: 1px solid #ff9800;
+  font-size: 13px;
+  padding: 8px 16px;
+  width: auto;
+  border-radius: 20px;
+  margin-bottom: 10px;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-box {
+  background: white;
+  border-radius: 14px;
+  padding: 24px 20px;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: auto;
+  background: none;
+  color: #999;
+  font-size: 18px;
+  padding: 4px 8px;
+  margin: 0;
+}
+
+.modal-box h3 {
+  color: #d35400;
+  margin-bottom: 12px;
+  padding-right: 20px;
+}
+
+.modal-box p {
+  font-size: 13.5px;
+  color: #555;
+  line-height: 1.6;
+  margin-bottom: 12px;
 }
