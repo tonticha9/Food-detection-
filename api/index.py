@@ -7,40 +7,50 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-# Elekeza Flask kwenye templates/ na static/ zilizoko root ya project,
-# si ndani ya folder ya api/
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
-# API key inatoka Environment Variable - KAMWE usiiandike hapa moja kwa moja
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-SYSTEM_PROMPT = """Wewe ni mtaalamu wa upishi mwenye ujuzi wa vyakula vyote duniani -
-Kiafrika, Kiasia, Kizungu, Kiarabu, Kilatini, na kadhalika.
+SYSTEM_PROMPT = """Wewe ni mtaalamu wa upishi mwenye ujuzi wa vyakula vyote duniani.
 
-Utapewa picha ya chakula kilichopikwa. Kazi yako:
-1. Tambua jina la chakula (kama unakijua kwa uhakika)
-2. Toa orodha kamili ya ingredients zinazohitajika kukipika
-3. Toa hatua za kupika kutoka A mpaka Z, kwa njia rahisi kueleweka
+Utapewa picha ya chakula. Tambua jina lake, toa ingredients, kisha toa NJIA MBILI
+FUPI za kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida, bila oveni/vifaa
+maalum) na "njia_ya_kisasa" (oveni, blender, air fryer au vifaa vya kisasa
+kama vinafaa kwa chakula hicho).
 
-Jibu LAZIMA liwe JSON pekee, muundo huu bila maandishi mengine yoyote:
+MUHIMU: Weka hatua (steps) FUPI na za moja kwa moja - sentensi 1 fupi kwa kila
+hatua, si maelezo marefu. Lengo ni JSON ifupi lakini kamili, isikatike kabla
+ya kuisha.
+
+Kama njia ya kisasa haihitajiki kabisa kwa chakula hicho (mfano wali wa
+kawaida), rudisha "njia_ya_kisasa" kama null.
+
+Jibu JSON pekee, muundo huu, bila maandishi mengine:
 
 {
-  "food_name": "jina la chakula",
+  "food_name": "jina",
   "confidence": "high/medium/low",
-  "origin": "chakula hiki kinatoka wapi",
-  "ingredients": ["kipimo + kiungo 1", "kipimo + kiungo 2"],
-  "steps": ["Hatua 1: ...", "Hatua 2: ..."],
-  "cooking_time": "muda wa kupika",
-  "tips": "ushauri wa ziada"
-}
-
-Kama huwezi kutambua chakula kwa uhakika, weka confidence "low" na jaribu
-kukisia kwa kutumia muonekano wake (rangi, umbo, viungo vinavyoonekana)."""
+  "origin": "asili",
+  "ingredients": ["kiungo 1", "kiungo 2"],
+  "cooking_methods": {
+    "jiko_kawaida": {
+      "description": "sentensi 1 fupi",
+      "steps": ["hatua fupi 1", "hatua fupi 2"],
+      "cooking_time": "muda"
+    },
+    "njia_ya_kisasa": {
+      "description": "sentensi 1 fupi au null",
+      "steps": ["hatua fupi 1", "hatua fupi 2"],
+      "cooking_time": "muda"
+    }
+  },
+  "tips": "ushauri 1 mfupi"
+}"""
 
 
 @app.route("/")
@@ -73,7 +83,7 @@ def identify_food():
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.3,
-                max_output_tokens=3048,
+                max_output_tokens=4096,
             ),
         )
 
@@ -84,7 +94,6 @@ def identify_food():
                 "error": "Gemini haikurudisha jibu lolote (labda picha haikutambulika au ilizuiwa na safety filter)"
             }), 500
 
-        # Safisha kama Gemini alifunga JSON kwenye ```json fences
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
@@ -94,14 +103,10 @@ def identify_food():
         try:
             result = json.loads(cleaned)
         except json.JSONDecodeError:
-            # Rudisha raw text ili tuone tatizo ni nini
             return jsonify({
-                "error": "Model imeshindwa kutoa JSON sahihi",
-                "raw_response": raw_text[:500]
+                "error": "Model imeshindwa kutoa JSON sahihi, jaribu tena",
+                "raw_response": raw_text[:800]
             }), 500
-
-        # Hapa unaweza kuhifadhi PostgreSQL kama history
-        # save_to_history(user_id, result)
 
         return jsonify(result), 200
 
