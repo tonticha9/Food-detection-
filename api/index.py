@@ -1,7 +1,6 @@
 import os
 import json
 import io
-import re
 
 from flask import Flask, request, jsonify, render_template
 from google import genai
@@ -37,6 +36,8 @@ MWONGOZO WA UBORA:
   kila hatua.
 - Description ya kila njia: sentensi 1 fupi inayoeleza mtindo mzima
 - Tips: nasaha 1-2 zenye manufaa halisi ya kiupishi
+- MUHIMU: Kila hatua iwe MSTARI MMOJA tu, bila kubonyeza Enter/newline ndani
+  ya maandishi ya hatua moja
 
 Andika kwa Kiswahili sanifu, rahisi kueleweka na mtu asiyejua kupika.
 
@@ -79,6 +80,39 @@ def extract_json_block(text):
             depth -= 1
             if depth == 0:
                 return text[start:i + 1]
+    return None
+
+
+def parse_json_safely(text):
+    """Jaribu njia kadhaa kupata JSON sahihi, ikiwemo kuruhusu control
+    characters (newlines halisi) ndani ya strings ambazo Gemini wakati
+    mwingine huziacha bila kuzi-escape."""
+
+    # Njia 1: parse ya kawaida (strict)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Njia 2: parse ikiruhusu control characters ndani ya strings
+    try:
+        return json.loads(text, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    # Njia 3: chukua JSON block kamili kwa bracket-matching, kisha jaribu
+    # strict na non-strict
+    block = extract_json_block(text)
+    if block:
+        try:
+            return json.loads(block)
+        except json.JSONDecodeError:
+            pass
+        try:
+            return json.loads(block, strict=False)
+        except json.JSONDecodeError:
+            pass
+
     return None
 
 
@@ -134,21 +168,7 @@ def identify_food():
             cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
             cleaned = cleaned.strip()
 
-        # Jaribu 1: parse moja kwa moja
-        result = None
-        try:
-            result = json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-
-        # Jaribu 2: chukua JSON block kamili kwa bracket-matching
-        if result is None:
-            block = extract_json_block(cleaned)
-            if block:
-                try:
-                    result = json.loads(block)
-                except json.JSONDecodeError:
-                    pass
+        result = parse_json_safely(cleaned)
 
         if result is None:
             return jsonify({
