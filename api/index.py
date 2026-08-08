@@ -23,97 +23,59 @@ Utapewa picha ya chakula. Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI
 (vikombe, vijiko, gramu, kilo - si maneno ya jumla tu), kisha toa NJIA MBILI za
 kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida, bila oveni/vifaa maalum)
 na "njia_ya_kisasa" (oveni, blender, air fryer au vifaa vya kisasa kama
-vinafaa kwa chakula hicho).
+vinafaa kwa chakula hicho, au null kama havihitajiki).
 
 MWONGOZO WA UBORA:
-- Kila kiungo lazima kiwe na kipimo (mfano "Vikombe 2 vya unga wa ngano",
-  siyo "unga" tu)
-- Ingredients: vitu 6 hadi 10 kulingana na uhalisia wa chakula
-- Steps kwa kila njia: hatua 5 hadi 8 kulingana na uhalisia wa chakula
-- Kila hatua iwe sentensi 1-2 zenye MAELEZO YA KUTOSHA - eleza JINSI (mfano
-  "koroga polepole") na wakati muhimu KWA NINI (mfano "ili isivunjike"),
-  lakini bila kuzidisha maneno yasiyo ya lazima. Lengo la maneno: 15-30 kwa
-  kila hatua.
-- Description ya kila njia: sentensi 1 fupi inayoeleza mtindo mzima
-- Tips: nasaha 1-2 zenye manufaa halisi ya kiupishi
-- MUHIMU: Kila hatua iwe MSTARI MMOJA tu, bila kubonyeza Enter/newline ndani
-  ya maandishi ya hatua moja
+- Kila kiungo lazima kiwe na kipimo (mfano "Vikombe 2 vya unga wa ngano")
+- Ingredients: vitu 6 hadi 10
+- Steps kwa kila njia: hatua 5 hadi 8
+- Kila hatua iwe sentensi 1-2 zenye maelezo ya JINSI na KWA NINI, maneno 15-30
+- Description ya kila njia: sentensi 1 fupi
+- Tips: nasaha 1-2 fupi
 
-Andika kwa Kiswahili sanifu, rahisi kueleweka na mtu asiyejua kupika.
+Andika kwa Kiswahili sanifu, rahisi kueleweka na mtu asiyejua kupika."""
 
-Kama njia ya kisasa haihitajiki kabisa kwa chakula hicho (mfano wali wa
-kawaida), rudisha "njia_ya_kisasa" kama null.
 
-Jibu JSON pekee, muundo huu, bila maandishi mengine:
-
-{
-  "food_name": "jina",
-  "confidence": "high/medium/low",
-  "origin": "asili",
-  "ingredients": ["kipimo + kiungo 1", "kipimo + kiungo 2"],
-  "cooking_methods": {
-    "jiko_kawaida": {
-      "description": "sentensi 1 fupi",
-      "steps": ["hatua yenye maelezo 1", "hatua yenye maelezo 2"],
-      "cooking_time": "muda"
+# Schema hii inamlazimisha Gemini kufuata muundo sahihi wa JSON kikamilifu,
+# badala ya kutegemea maelekezo ya maandishi tu (hii inazuia JSON kuharibika)
+RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "food_name": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "origin": {"type": "string"},
+        "ingredients": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
+        "cooking_methods": {
+            "type": "object",
+            "properties": {
+                "jiko_kawaida": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "steps": {"type": "array", "items": {"type": "string"}},
+                        "cooking_time": {"type": "string"},
+                    },
+                    "required": ["description", "steps", "cooking_time"],
+                },
+                "njia_ya_kisasa": {
+                    "type": "object",
+                    "nullable": True,
+                    "properties": {
+                        "description": {"type": "string"},
+                        "steps": {"type": "array", "items": {"type": "string"}},
+                        "cooking_time": {"type": "string"},
+                    },
+                },
+            },
+            "required": ["jiko_kawaida"],
+        },
+        "tips": {"type": "string"},
     },
-    "njia_ya_kisasa": {
-      "description": "sentensi 1 fupi au null",
-      "steps": ["hatua yenye maelezo 1", "hatua yenye maelezo 2"],
-      "cooking_time": "muda"
-    }
-  },
-  "tips": "nasaha 1-2 fupi"
-}"""
-
-
-def extract_json_block(text):
-    """Chukua JSON kamili ya kwanza kutoka kwenye text kwa kufuatilia { }."""
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:i + 1]
-    return None
-
-
-def parse_json_safely(text):
-    """Jaribu njia kadhaa kupata JSON sahihi, ikiwemo kuruhusu control
-    characters (newlines halisi) ndani ya strings ambazo Gemini wakati
-    mwingine huziacha bila kuzi-escape."""
-
-    # Njia 1: parse ya kawaida (strict)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Njia 2: parse ikiruhusu control characters ndani ya strings
-    try:
-        return json.loads(text, strict=False)
-    except json.JSONDecodeError:
-        pass
-
-    # Njia 3: chukua JSON block kamili kwa bracket-matching, kisha jaribu
-    # strict na non-strict
-    block = extract_json_block(text)
-    if block:
-        try:
-            return json.loads(block)
-        except json.JSONDecodeError:
-            pass
-        try:
-            return json.loads(block, strict=False)
-        except json.JSONDecodeError:
-            pass
-
-    return None
+    "required": ["food_name", "confidence", "origin", "ingredients", "cooking_methods", "tips"],
+}
 
 
 @app.route("/")
@@ -145,6 +107,7 @@ def identify_food():
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_schema=RESPONSE_SCHEMA,
                 temperature=0.3,
                 max_output_tokens=12000,
             ),
@@ -162,19 +125,16 @@ def identify_food():
                 "error": f"Gemini haikurudisha jibu (finish_reason: {finish_reason})"
             }), 500
 
-        cleaned = raw_text.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
-            cleaned = cleaned.strip()
-
-        result = parse_json_safely(cleaned)
-
-        if result is None:
-            return jsonify({
-                "error": f"Model imeshindwa kutoa JSON sahihi (finish_reason: {finish_reason}, urefu: {len(raw_text)} herufi)",
-                "raw_response": raw_text[:2000]
-            }), 500
+        try:
+            result = json.loads(raw_text)
+        except json.JSONDecodeError:
+            try:
+                result = json.loads(raw_text, strict=False)
+            except json.JSONDecodeError:
+                return jsonify({
+                    "error": f"Model imeshindwa kutoa JSON sahihi (finish_reason: {finish_reason}, urefu: {len(raw_text)} herufi)",
+                    "raw_response": raw_text[:2000]
+                }), 500
 
         return jsonify(result), 200
 
