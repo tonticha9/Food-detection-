@@ -27,7 +27,22 @@ h1 { text-align: center; font-size: 24px; margin-bottom: 4px; }
 }
 
 .upload-box img { width: 100%; height: 100%; object-fit: cover; }
-#imageInput { display: none; }
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.button-row button {
+  flex: 1;
+  background: #fff3e0;
+  color: #d35400;
+  border: 1px solid #ff9800;
+  margin-top: 0;
+  font-size: 13px;
+  padding: 12px 6px;
+}
 
 button {
   width: 100%;
@@ -93,4 +108,32 @@ button {
   color: #666;
   font-style: italic;
   margin-bottom: 10px;
+}
+
+.about-section {
+  margin-top: 32px;
+  background: white;
+  padding: 18px;
+  border-radius: 12px;
+  border-left: 4px solid #ff9800;
+}
+
+.about-section h3 {
+  margin-bottom: 10px;
+  color: #d35400;
+}
+
+.about-section p {
+  font-size: 13.5px;
+  color: #555;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.footer {
+  text-align: center;
+  margin-top: 20px;
+  padding: 16px 0 30px;
+  color: #999;
+  font-size: 12px;
 }
