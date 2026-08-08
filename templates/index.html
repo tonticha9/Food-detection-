@@ -13,11 +13,19 @@
     <p class="subtitle">Piga picha ya chakula chochote duniani, upate jina, ingredients na jinsi ya kupika</p>
 
     <form id="foodForm">
-      <label for="imageInput" class="upload-box">
+      <label for="cameraInput" class="upload-box">
         <span id="uploadText">📷 Bonyeza kupiga/kupakia picha</span>
         <img id="preview" style="display:none;" />
       </label>
-      <input type="file" id="imageInput" name="image" accept="image/*" capture="environment" required>
+
+      <input type="file" id="cameraInput" name="cameraImage" accept="image/*" capture="environment" style="display:none;">
+      <input type="file" id="galleryInput" name="galleryImage" accept="image/*" style="display:none;">
+
+      <div class="button-row">
+        <button type="button" id="cameraBtn">📷 Piga Picha</button>
+        <button type="button" id="galleryBtn">🖼️ Chagua kwenye Gallery</button>
+      </div>
+
       <button type="submit" id="submitBtn">Tambua Chakula</button>
     </form>
 
@@ -48,6 +56,26 @@
     </div>
 
     <div id="errorBox" style="display:none;" class="error"></div>
+
+    <div class="about-section">
+      <h3>👨‍💻 Kuhusu App Hii</h3>
+      <p>
+        App hii iliundwa na <strong>Braiton Living</strong> — mtengenezaji wa
+        programu kutoka Tanzania, akitumia fursa za teknolojia ya AI kuleta
+        suluhisho la vitendo kwa jamii. Lengo ni kuwezesha mtu yeyote,
+        popote alipo, kupata maelekezo sahihi ya kupika chakula chochote
+        duniani kwa lugha anayoielewa vizuri.
+      </p>
+      <p>
+        Mradi huu ni sehemu ya juhudi za kuleta ubunifu wa kiteknolojia
+        karibu na watu wa kawaida — bila gharama kubwa, bila utata, moja
+        kwa moja kutoka kwenye simu mkononi.
+      </p>
+    </div>
+
+    <footer class="footer">
+      <p>Imetengenezwa kwa ❤️ na Braiton Living &middot; Tanzania</p>
+    </footer>
   </div>
 
   <script src="{{ url_for('static', filename='script.js') }}"></script>
