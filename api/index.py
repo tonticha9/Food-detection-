@@ -23,9 +23,15 @@ FUPI za kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida, bila oveni/vifaa
 maalum) na "njia_ya_kisasa" (oveni, blender, air fryer au vifaa vya kisasa
 kama vinafaa kwa chakula hicho).
 
-MUHIMU: Weka hatua (steps) FUPI na za moja kwa moja - sentensi 1 fupi kwa kila
-hatua, si maelezo marefu. Lengo ni JSON ifupi lakini kamili, isikatike kabla
-ya kuisha.
+SHERIA KALI ZA UREFU (lazima zifuatwe bila kukiuka):
+- Ingredients: si zaidi ya vitu 8
+- Steps kwa kila njia: si zaidi ya hatua 6
+- Kila hatua: si zaidi ya maneno 15, sentensi 1 fupi tu, bila maelezo ya ziada
+- Description ya kila njia: si zaidi ya maneno 12
+- Tips: sentensi 1 fupi tu
+
+Lengo ni JSON fupi na kamili inayoisha vizuri - UFUPI ni muhimu zaidi kuliko
+maelezo ya kina.
 
 Kama njia ya kisasa haihitajiki kabisa kwa chakula hicho (mfano wali wa
 kawaida), rudisha "njia_ya_kisasa" kama null.
@@ -83,7 +89,7 @@ def identify_food():
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.3,
-                max_output_tokens=4096,
+                max_output_tokens=8192,
             ),
         )
 
