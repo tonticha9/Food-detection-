@@ -676,8 +676,16 @@ document.getElementById("clearGeminiKeyBtn").addEventListener("click", async () 
 document.getElementById("saveDefaultLimitBtn").addEventListener("click", async () => {
   const val = document.getElementById("defaultLimitInput").value;
   const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
-  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ default_message_limit: val }) });
-  showAdminMsg("✅ Default limit imesasishwa (itatumika kwa watumiaji wapya)");
+  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ default_message_limit: val, apply_to_all: false }) });
+  showAdminMsg("✅ Limit mpya itatumika kwa watumiaji WAPYA tu");
+});
+
+document.getElementById("saveDefaultLimitAllBtn").addEventListener("click", async () => {
+  const val = document.getElementById("defaultLimitInput").value;
+  if (!confirm(`Una uhakika unataka kubadilisha limit ya WATUMIAJI WOTE kuwa ${val}?`)) return;
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ default_message_limit: val, apply_to_all: true }) });
+  showAdminMsg("✅ Limit imesasishwa kwa WATUMIAJI WOTE (waliopo na wapya)");
 });
 
 document.getElementById("saveReferralBonusBtn").addEventListener("click", async () => {
