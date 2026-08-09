@@ -15,8 +15,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=GEMINI_API_KEY)
+ENV_GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -166,6 +165,26 @@ def get_authenticated_user(req):
     return resp.json()
 
 
+def is_admin(user_id):
+    resp = requests.get(
+        f"{REST_URL}/admins",
+        headers=SERVICE_HEADERS,
+        params={"user_id": f"eq.{user_id}", "select": "user_id"},
+        timeout=10,
+    )
+    return resp.status_code == 200 and len(resp.json()) > 0
+
+
+def require_admin(req):
+    """Rudisha (user, error_response). error_response ni None kama sawa."""
+    user = get_authenticated_user(req)
+    if not user:
+        return None, (jsonify({"error": "Login required"}), 401)
+    if not is_admin(user["id"]):
+        return None, (jsonify({"error": "Huna ruhusa ya admin"}), 403)
+    return user, None
+
+
 def get_setting(key, default=""):
     resp = requests.get(
         f"{REST_URL}/app_settings",
@@ -176,6 +195,22 @@ def get_setting(key, default=""):
     if resp.status_code == 200 and resp.json():
         return resp.json()[0]["value"]
     return default
+
+
+def set_setting(key, value):
+    requests.post(
+        f"{REST_URL}/app_settings",
+        headers={**SERVICE_HEADERS, "Prefer": "resolution=merge-duplicates"},
+        json={"key": key, "value": value},
+        timeout=10,
+    )
+
+
+def get_gemini_client():
+    """Tumia key kutoka database (admin-set) kama ipo, la sivyo env variable."""
+    db_key = get_setting("gemini_api_key", "")
+    active_key = db_key if db_key else ENV_GEMINI_KEY
+    return genai.Client(api_key=active_key)
 
 
 def get_or_create_profile(user_id, full_name=""):
@@ -246,7 +281,6 @@ def save_history(user_id, food_name, data):
 
 
 def check_and_consume_quota(user):
-    """Rudisha (profile, error_response) - error_response ni None kama sawa."""
     full_name = user.get("user_metadata", {}).get("full_name", "")
     prof = get_or_create_profile(user["id"], full_name)
     prof = reset_quota_if_new_day(prof)
@@ -301,6 +335,7 @@ def profile():
         "messages_limit": prof["messages_limit"],
         "bonus_messages": prof.get("bonus_messages", 0),
         "remaining": max(0, remaining),
+        "is_admin": is_admin(user["id"]),
     })
 
 
@@ -332,8 +367,9 @@ def identify_food():
         image_bytes = buffer.getvalue()
 
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
+        gemini_client = get_gemini_client()
 
-        response = client.models.generate_content(
+        response = gemini_client.models.generate_content(
             model="gemini-3.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
@@ -385,8 +421,9 @@ def pro_suggest():
 
     try:
         prompt = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
+        gemini_client = get_gemini_client()
 
-        response = client.models.generate_content(
+        response = gemini_client.models.generate_content(
             model="gemini-3.5-flash",
             contents=[prompt],
             config=types.GenerateContentConfig(
@@ -462,6 +499,116 @@ def favorites():
             timeout=10,
         )
         return jsonify({"ok": True})
+
+
+# ============ ADMIN ENDPOINTS ============
+
+@app.route("/api/admin/users", methods=["GET"])
+def admin_list_users():
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+
+    resp = requests.get(
+        f"{REST_URL}/profiles",
+        headers=SERVICE_HEADERS,
+        params={"select": "*", "order": "created_at.desc"},
+        timeout=10,
+    )
+    return jsonify(resp.json() if resp.status_code == 200 else [])
+
+
+@app.route("/api/admin/users/<user_id>", methods=["DELETE"])
+def admin_delete_user(user_id):
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+
+    # Kufuta kwenye auth.users kuna-cascade kufuta profiles/history/favorites
+    resp = requests.delete(
+        f"{AUTH_URL}/admin/users/{user_id}",
+        headers=SERVICE_HEADERS,
+        timeout=10,
+    )
+    if resp.status_code not in (200, 204):
+        return jsonify({"error": "Imeshindwa kufuta mtumiaji"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/users/<user_id>/limit", methods=["POST"])
+def admin_update_user_limit(user_id):
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+
+    body = request.get_json() or {}
+    new_limit = body.get("messages_limit")
+    if new_limit is None:
+        return jsonify({"error": "messages_limit inahitajika"}), 400
+
+    requests.patch(
+        f"{REST_URL}/profiles",
+        headers=SERVICE_HEADERS,
+        params={"id": f"eq.{user_id}"},
+        json={"messages_limit": int(new_limit)},
+        timeout=10,
+    )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/settings", methods=["GET"])
+def admin_get_settings():
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+
+    resp = requests.get(
+        f"{REST_URL}/app_settings",
+        headers=SERVICE_HEADERS,
+        params={"select": "*"},
+        timeout=10,
+    )
+    rows = resp.json() if resp.status_code == 200 else []
+    settings = {r["key"]: r["value"] for r in rows}
+
+    # Ficha sehemu kubwa ya API key kwa usalama wa kuonyesha kwenye UI
+    key = settings.get("gemini_api_key", "")
+    if key:
+        settings["gemini_api_key_masked"] = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
+    else:
+        settings["gemini_api_key_masked"] = "(inatumia Environment Variable)"
+    settings.pop("gemini_api_key", None)
+
+    return jsonify(settings)
+
+
+@app.route("/api/admin/settings", methods=["POST"])
+def admin_update_settings():
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+
+    body = request.get_json() or {}
+
+    if "gemini_api_key" in body and body["gemini_api_key"]:
+        set_setting("gemini_api_key", body["gemini_api_key"])
+
+    if "default_message_limit" in body:
+        set_setting("default_message_limit", str(body["default_message_limit"]))
+
+    if "referral_bonus_messages" in body:
+        set_setting("referral_bonus_messages", str(body["referral_bonus_messages"]))
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/settings/clear-gemini-key", methods=["POST"])
+def admin_clear_gemini_key():
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+    set_setting("gemini_api_key", "")
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
