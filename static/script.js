@@ -310,6 +310,10 @@ form.addEventListener("submit", async (e) => {
       throw new Error(data.error || "Hitilafu imetokea");
     }
 
+    if (data.is_food === false) {
+      throw new Error(data.tips || "Picha hii haionyeshi chakula. Tafadhali piga picha ya chakula halisi.");
+    }
+
     currentData = data;
     currentMethod = "jiko_kawaida";
     displayResult(data);
@@ -535,6 +539,16 @@ document.getElementById("proSubmitBtn").addEventListener("click", async () => {
 
     if (res.status === 401) { showAuthModal(); throw new Error("Tafadhali ingia kwanza."); }
     if (!res.ok) throw new Error(data.error || "Hitilafu imetokea");
+
+    if (data.is_valid === false) {
+      throw new Error(data.message || "Tafadhali andika viungo halisi vya chakula.");
+    }
+
+    if ((data.suggestions || []).length === 0) {
+      proError.textContent = "Hakuna mapendekezo yaliyopatikana. Jaribu kuandika viungo tofauti.";
+      proError.style.display = "block";
+      return;
+    }
 
     (data.suggestions || []).forEach((s) => {
       const card = document.createElement("div");
