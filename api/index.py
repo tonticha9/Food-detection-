@@ -612,6 +612,7 @@ def admin_get_settings():
     return jsonify(settings)
 
 
+
 @app.route("/api/admin/settings", methods=["POST"])
 def admin_update_settings():
     _, error_resp = require_admin(request)
@@ -626,11 +627,19 @@ def admin_update_settings():
     if "default_message_limit" in body:
         set_setting("default_message_limit", str(body["default_message_limit"]))
 
+        if body.get("apply_to_all"):
+            requests.patch(
+                f"{REST_URL}/profiles",
+                headers=SERVICE_HEADERS,
+                params={"id": "not.is.null"},
+                json={"messages_limit": int(body["default_message_limit"])},
+                timeout=15,
+            )
+
     if "referral_bonus_messages" in body:
         set_setting("referral_bonus_messages", str(body["referral_bonus_messages"]))
 
     return jsonify({"ok": True})
-
 
 @app.route("/api/admin/settings/clear-gemini-key", methods=["POST"])
 def admin_clear_gemini_key():
