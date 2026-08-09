@@ -66,14 +66,10 @@ const authSwitchText = document.getElementById("authSwitchText");
 const authSwitchLink = document.getElementById("authSwitchLink");
 const authError = document.getElementById("authError");
 
-let authMode = "login"; // "login" | "signup"
+let authMode = "login";
 
-function showAuthModal() {
-  authModal.style.display = "flex";
-}
-function hideAuthModal() {
-  authModal.style.display = "none";
-}
+function showAuthModal() { authModal.style.display = "flex"; }
+function hideAuthModal() { authModal.style.display = "none"; }
 
 authSwitchLink.addEventListener("click", (e) => {
   e.preventDefault();
@@ -166,6 +162,7 @@ logoutBtn.addEventListener("click", async () => {
 /* ================= After Login ================= */
 async function onLoggedIn() {
   await refreshQuota();
+  await checkAdminStatus();
   renderHistory();
   renderFavorites();
 }
@@ -355,7 +352,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* ================= Favorites (backend) ================= */
+/* ================= Favorites ================= */
 let favoritesCache = [];
 
 async function loadFavoritesCache() {
@@ -536,10 +533,67 @@ aboutBtn.addEventListener("click", () => { aboutModal.style.display = "flex"; })
 closeAboutBtn.addEventListener("click", () => { aboutModal.style.display = "none"; });
 aboutModal.addEventListener("click", (e) => { if (e.target === aboutModal) aboutModal.style.display = "none"; });
 
-/* ================= PWA Service Worker ================= */
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
+/* ================= Admin Panel ================= */
+const adminPanelBtn = document.getElementById("adminPanelBtn");
+const adminModal = document.getElementById("adminModal");
+const closeAdminBtn = document.getElementById("closeAdminBtn");
+
+let userIsAdmin = false;
+
+async function checkAdminStatus() {
+  try {
+    const headers = await getAuthHeader();
+    const res = await fetch("/api/profile", { headers });
+    if (!res.ok) return;
+    const data = await res.json();
+    userIsAdmin = !!data.is_admin;
+    adminPanelBtn.style.display = userIsAdmin ? "block" : "none";
+  } catch {}
 }
 
-/* ================= Start ================= */
-initSupabase();
+adminPanelBtn.addEventListener("click", () => {
+  userMenuModal.style.display = "none";
+  adminModal.style.display = "flex";
+  loadAdminSettings();
+});
+closeAdminBtn.addEventListener("click", () => { adminModal.style.display = "none"; });
+
+document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".admin-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    document.getElementById("adminSettingsTab").style.display = btn.dataset.atab === "settings" ? "block" : "none";
+    document.getElementById("adminUsersTab").style.display = btn.dataset.atab === "users" ? "block" : "none";
+    if (btn.dataset.atab === "users") loadAdminUsers();
+  });
+});
+
+async function loadAdminSettings() {
+  const headers = await getAuthHeader();
+  const res = await fetch("/api/admin/settings", { headers });
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById("currentGeminiKey").textContent = data.gemini_api_key_masked || "-";
+  document.getElementById("defaultLimitInput").value = data.default_message_limit || 5;
+  document.getElementById("referralBonusInput").value = data.referral_bonus_messages || 5;
+}
+
+function showAdminMsg(text) {
+  const el = document.getElementById("adminSettingsMsg");
+  el.textContent = text;
+  el.style.display = "block";
+  setTimeout(() => { el.style.display = "none"; }, 3000);
+}
+
+document.getElementById("saveGeminiKeyBtn").addEventListener("click", async () => {
+  const key = document.getElementById("newGeminiKey").value.trim();
+  if (!key) return;
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ gemini_api_key: key }) });
+  document.getElementById("newGeminiKey").value = "";
+  showAdminMsg("✅ Gemini API key imesasishwa");
+  loadAdminSettings();
+});
+
+document.getElementById("clearGeminiKeyBtn").addEventListener("click", async () => {
+  const headers = await getAuthHeader();
+  await fetch("/api/admin/settings/cl
