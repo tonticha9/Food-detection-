@@ -67,8 +67,9 @@ nyumbani: "{ingredients}".
 
 Toa mapendekezo ya vyakula 3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo
 (au viungo hivyo pamoja na vitu vichache vya kawaida vinavyopatikana kila
-nyumbani, kama chumvi/maji/mafuta). Kwa kila pendekezo, taja kama kuna kiungo
-kimoja au viwili vya ziada anavyoweza kuhitaji kununua.
+nyumbani, kama chumvi/maji/mafuta). Kwa KILA pendekezo, toa PIA hatua fupi za
+namna ya kuvitengeneza (hatua 4-6, maneno 15-25 kila hatua) - si maelezo
+mafupi tu, bali maelekezo kamili ya kupika chakula hicho.
 
 Andika JIBU LOTE kwa lugha ya {lang_name}.
 
@@ -78,7 +79,8 @@ Jibu JSON pekee, muundo huu:
     {{
       "food_name": "jina la chakula",
       "short_description": "sentensi 1-2 fupi kuhusu chakula hiki",
-      "extra_needed": ["kiungo cha ziada 1", "kiungo cha ziada 2"]
+      "extra_needed": ["kiungo cha ziada 1", "kiungo cha ziada 2"],
+      "steps": ["hatua 1", "hatua 2", "hatua 3"]
     }}
   ]
 }}"""
@@ -141,8 +143,9 @@ PRO_RESPONSE_SCHEMA = {
                     "food_name": {"type": "string"},
                     "short_description": {"type": "string"},
                     "extra_needed": {"type": "array", "items": {"type": "string"}},
+                    "steps": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["food_name", "short_description", "extra_needed"],
+                "required": ["food_name", "short_description", "extra_needed", "steps"],
             },
         }
     },
@@ -176,7 +179,6 @@ def is_admin(user_id):
 
 
 def require_admin(req):
-    """Rudisha (user, error_response). error_response ni None kama sawa."""
     user = get_authenticated_user(req)
     if not user:
         return None, (jsonify({"error": "Login required"}), 401)
@@ -207,7 +209,6 @@ def set_setting(key, value):
 
 
 def get_gemini_client():
-    """Tumia key kutoka database (admin-set) kama ipo, la sivyo env variable."""
     db_key = get_setting("gemini_api_key", "")
     active_key = db_key if db_key else ENV_GEMINI_KEY
     return genai.Client(api_key=active_key)
@@ -281,9 +282,13 @@ def save_history(user_id, food_name, data):
 
 
 def check_and_consume_quota(user):
+    """Rudisha (profile, error_response, is_unlimited)."""
     full_name = user.get("user_metadata", {}).get("full_name", "")
     prof = get_or_create_profile(user["id"], full_name)
     prof = reset_quota_if_new_day(prof)
+
+    if is_admin(user["id"]):
+        return prof, None, True
 
     total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
     if prof["messages_used_today"] >= total_allowed:
@@ -291,8 +296,8 @@ def check_and_consume_quota(user):
             "error": "quota_exceeded",
             "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
             "share_url": "https://world-food-scanner.vercel.app"
-        }), 429)
-    return prof, None
+        }), 429), False
+    return prof, None, False
 
 
 @app.route("/")
@@ -327,16 +332,41 @@ def profile():
     full_name = user.get("user_metadata", {}).get("full_name", "")
     prof = get_or_create_profile(user["id"], full_name)
     prof = reset_quota_if_new_day(prof)
+    admin_flag = is_admin(user["id"])
 
     remaining = prof["messages_limit"] + prof.get("bonus_messages", 0) - prof["messages_used_today"]
     return jsonify({
         "full_name": prof.get("full_name"),
+        "email": user.get("email", ""),
         "messages_used_today": prof["messages_used_today"],
         "messages_limit": prof["messages_limit"],
         "bonus_messages": prof.get("bonus_messages", 0),
         "remaining": max(0, remaining),
-        "is_admin": is_admin(user["id"]),
+        "is_admin": admin_flag,
     })
+
+
+@app.route("/api/claim-referral-bonus", methods=["POST"])
+def claim_referral_bonus():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+
+    prof = get_or_create_profile(user["id"], user.get("user_metadata", {}).get("full_name", ""))
+    bonus = int(get_setting("referral_bonus_messages", "5"))
+
+    new_bonus = prof.get("bonus_messages", 0) + bonus
+    new_referral_count = prof.get("referral_count", 0) + 1
+
+    requests.patch(
+        f"{REST_URL}/profiles",
+        headers=SERVICE_HEADERS,
+        params={"id": f"eq.{user['id']}"},
+        json={"bonus_messages": new_bonus, "referral_count": new_referral_count},
+        timeout=10,
+    )
+
+    return jsonify({"bonus_messages": new_bonus, "referral_count": new_referral_count})
 
 
 @app.route("/api/identify-food", methods=["POST"])
@@ -345,7 +375,7 @@ def identify_food():
     if not user:
         return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
 
-    prof, error_resp = check_and_consume_quota(user)
+    prof, error_resp, is_unlimited = check_and_consume_quota(user)
     if error_resp:
         return error_resp
 
@@ -392,7 +422,8 @@ def identify_food():
         except json.JSONDecodeError:
             result = json.loads(raw_text, strict=False)
 
-        increment_usage(user["id"], prof["messages_used_today"])
+        if not is_unlimited:
+            increment_usage(user["id"], prof["messages_used_today"])
         save_history(user["id"], result.get("food_name", ""), result)
 
         return jsonify(result), 200
@@ -407,7 +438,7 @@ def pro_suggest():
     if not user:
         return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
 
-    prof, error_resp = check_and_consume_quota(user)
+    prof, error_resp, is_unlimited = check_and_consume_quota(user)
     if error_resp:
         return error_resp
 
@@ -430,7 +461,7 @@ def pro_suggest():
                 response_mime_type="application/json",
                 response_schema=PRO_RESPONSE_SCHEMA,
                 temperature=0.4,
-                max_output_tokens=4000,
+                max_output_tokens=6000,
             ),
         )
 
@@ -443,7 +474,8 @@ def pro_suggest():
         except json.JSONDecodeError:
             result = json.loads(raw_text, strict=False)
 
-        increment_usage(user["id"], prof["messages_used_today"])
+        if not is_unlimited:
+            increment_usage(user["id"], prof["messages_used_today"])
 
         return jsonify(result), 200
 
@@ -524,7 +556,6 @@ def admin_delete_user(user_id):
     if error_resp:
         return error_resp
 
-    # Kufuta kwenye auth.users kuna-cascade kufuta profiles/history/favorites
     resp = requests.delete(
         f"{AUTH_URL}/admin/users/{user_id}",
         headers=SERVICE_HEADERS,
@@ -571,7 +602,6 @@ def admin_get_settings():
     rows = resp.json() if resp.status_code == 200 else []
     settings = {r["key"]: r["value"] for r in rows}
 
-    # Ficha sehemu kubwa ya API key kwa usalama wa kuonyesha kwenye UI
     key = settings.get("gemini_api_key", "")
     if key:
         settings["gemini_api_key_masked"] = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
