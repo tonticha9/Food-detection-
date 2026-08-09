@@ -66,14 +66,10 @@ const authSwitchText = document.getElementById("authSwitchText");
 const authSwitchLink = document.getElementById("authSwitchLink");
 const authError = document.getElementById("authError");
 
-let authMode = "login"; // "login" | "signup"
+let authMode = "login";
 
-function showAuthModal() {
-  authModal.style.display = "flex";
-}
-function hideAuthModal() {
-  authModal.style.display = "none";
-}
+function showAuthModal() { authModal.style.display = "flex"; }
+function hideAuthModal() { authModal.style.display = "none"; }
 
 authSwitchLink.addEventListener("click", (e) => {
   e.preventDefault();
@@ -166,6 +162,7 @@ logoutBtn.addEventListener("click", async () => {
 /* ================= After Login ================= */
 async function onLoggedIn() {
   await refreshQuota();
+  await checkAdminStatus();
   renderHistory();
   renderFavorites();
 }
@@ -355,7 +352,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* ================= Favorites (backend) ================= */
+/* ================= Favorites ================= */
 let favoritesCache = [];
 
 async function loadFavoritesCache() {
@@ -535,6 +532,135 @@ const aboutModal = document.getElementById("aboutModal");
 aboutBtn.addEventListener("click", () => { aboutModal.style.display = "flex"; });
 closeAboutBtn.addEventListener("click", () => { aboutModal.style.display = "none"; });
 aboutModal.addEventListener("click", (e) => { if (e.target === aboutModal) aboutModal.style.display = "none"; });
+
+/* ================= Admin Panel ================= */
+const adminPanelBtn = document.getElementById("adminPanelBtn");
+const adminModal = document.getElementById("adminModal");
+const closeAdminBtn = document.getElementById("closeAdminBtn");
+
+let userIsAdmin = false;
+
+async function checkAdminStatus() {
+  try {
+    const headers = await getAuthHeader();
+    const res = await fetch("/api/profile", { headers });
+    if (!res.ok) return;
+    const data = await res.json();
+    userIsAdmin = !!data.is_admin;
+    adminPanelBtn.style.display = userIsAdmin ? "block" : "none";
+  } catch {}
+}
+
+adminPanelBtn.addEventListener("click", () => {
+  userMenuModal.style.display = "none";
+  adminModal.style.display = "flex";
+  loadAdminSettings();
+});
+closeAdminBtn.addEventListener("click", () => { adminModal.style.display = "none"; });
+
+document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".admin-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    document.getElementById("adminSettingsTab").style.display = btn.dataset.atab === "settings" ? "block" : "none";
+    document.getElementById("adminUsersTab").style.display = btn.dataset.atab === "users" ? "block" : "none";
+    if (btn.dataset.atab === "users") loadAdminUsers();
+  });
+});
+
+async function loadAdminSettings() {
+  const headers = await getAuthHeader();
+  const res = await fetch("/api/admin/settings", { headers });
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById("currentGeminiKey").textContent = data.gemini_api_key_masked || "-";
+  document.getElementById("defaultLimitInput").value = data.default_message_limit || 5;
+  document.getElementById("referralBonusInput").value = data.referral_bonus_messages || 5;
+}
+
+function showAdminMsg(text) {
+  const el = document.getElementById("adminSettingsMsg");
+  el.textContent = text;
+  el.style.display = "block";
+  setTimeout(() => { el.style.display = "none"; }, 3000);
+}
+
+document.getElementById("saveGeminiKeyBtn").addEventListener("click", async () => {
+  const key = document.getElementById("newGeminiKey").value.trim();
+  if (!key) return;
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ gemini_api_key: key }) });
+  document.getElementById("newGeminiKey").value = "";
+  showAdminMsg("✅ Gemini API key imesasishwa");
+  loadAdminSettings();
+});
+
+document.getElementById("clearGeminiKeyBtn").addEventListener("click", async () => {
+  const headers = await getAuthHeader();
+  await fetch("/api/admin/settings/clear-gemini-key", { method: "POST", headers });
+  showAdminMsg("✅ Imefutwa, sasa inatumia Environment Variable");
+  loadAdminSettings();
+});
+
+document.getElementById("saveDefaultLimitBtn").addEventListener("click", async () => {
+  const val = document.getElementById("defaultLimitInput").value;
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ default_message_limit: val }) });
+  showAdminMsg("✅ Default limit imesasishwa (itatumika kwa watumiaji wapya)");
+});
+
+document.getElementById("saveReferralBonusBtn").addEventListener("click", async () => {
+  const val = document.getElementById("referralBonusInput").value;
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  await fetch("/api/admin/settings", { method: "POST", headers, body: JSON.stringify({ referral_bonus_messages: val }) });
+  showAdminMsg("✅ Referral bonus imesasishwa");
+});
+
+async function loadAdminUsers() {
+  const headers = await getAuthHeader();
+  const res = await fetch("/api/admin/users", { headers });
+  const container = document.getElementById("adminUsersList");
+  container.innerHTML = "";
+  if (!res.ok) { container.innerHTML = "<p>Imeshindwa kupata watumiaji</p>"; return; }
+  const users = await res.json();
+
+  if (users.length === 0) { container.innerHTML = "<p class='empty-msg'>Hakuna watumiaji</p>"; return; }
+
+  users.forEach((u) => {
+    const card = document.createElement("div");
+    card.className = "admin-user-card";
+    card.innerHTML = `
+      <strong>${u.full_name}</strong>
+      <span class="admin-user-info">Ametumia: ${u.messages_used_today}/${u.messages_limit + (u.bonus_messages || 0)} leo</span>
+      <span class="admin-user-info">Referrals: ${u.referral_count || 0}</span>
+      <div class="admin-user-actions">
+        <input type="number" class="admin-limit-input" value="${u.messages_limit}" data-id="${u.id}">
+        <button type="button" class="admin-mini-btn admin-set-limit-btn" data-id="${u.id}">Weka</button>
+        <button type="button" class="admin-mini-btn admin-delete-btn" data-id="${u.id}">Futa</button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+
+  document.querySelectorAll(".admin-set-limit-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const input = document.querySelector(`.admin-limit-input[data-id="${id}"]`);
+      const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+      await fetch(`/api/admin/users/${id}/limit`, { method: "POST", headers, body: JSON.stringify({ messages_limit: input.value }) });
+      showAdminMsg("✅ Limit imebadilishwa");
+    });
+  });
+
+  document.querySelectorAll(".admin-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Una uhakika unataka kufuta mtumiaji huyu kabisa?")) return;
+      const id = btn.dataset.id;
+      const headers = await getAuthHeader();
+      await fetch(`/api/admin/users/${id}`, { method: "DELETE", headers });
+      loadAdminUsers();
+    });
+  });
+}
 
 /* ================= PWA Service Worker ================= */
 if ("serviceWorker" in navigator) {
