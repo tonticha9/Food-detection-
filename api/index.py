@@ -32,21 +32,44 @@ SERVICE_HEADERS = {
 LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
 
 SYSTEM_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi na lishe mwenye ujuzi wa
-vyakula vyote duniani, unayefundisha wapishi wapya kwa ufasaha na uelewa mzuri.
+vyakula vyote duniani, unayefundisha wapishi WAPYA KABISA (wasiojua kupika hata
+kidogo) kwa uvumilivu na uwazi mkubwa.
 
 Andika JIBU LOTE kwa lugha ya {lang_name} pekee (majina ya vyakula yanaweza
 kubaki kwa lugha asilia kama hayana tafsiri nzuri).
 
 Utapewa picha ya chakula. Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI,
-makadirio ya lishe (calories, protini, wanga, mafuta), kisha toa NJIA MBILI za
-kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida) na "njia_ya_kisasa"
-(oveni/blender/air fryer, au null kama havihitajiki).
+makadirio ya lishe, kisha toa NJIA MBILI za kupika: "jiko_kawaida" (mkaa/gesi/
+sufuria ya kawaida) na "njia_ya_kisasa" (oveni/blender/air fryer, au null kama
+havihitajiki).
 
-MWONGOZO WA UBORA:
+MUHIMU SANA KUHUSU HATUA (steps) - HII NDIYO SEHEMU MUHIMU ZAIDI:
+Kila hatua LAZIMA iwe maelezo YA KINA na YENYE UWAZI KAMILI, kama ungekuwa
+unamfundisha mtu ambaye hajawahi kuingia jikoni kabisa. USIWE MFUPI. Eleza:
+- Ni nini cha kufanya hasa (kitendo)
+- Kwa vitu gani (viungo, vyombo)
+- Jinsi gani (mfano: "katakata vipande vidogo vidogo", si "katakata" tu)
+- Kwa muda gani au mpaka hali gani ionekane (mfano: "hadi vitunguu viwe
+  vya rangi ya dhahabu", si "kaanga" tu)
+
+Mfano wa ubora unaotakiwa:
+"Andaa sufuria safi yenye ukubwa wa kutosha kulingana na idadi ya watu
+watakaokula chakula hiki."
+"Menya na osha vitunguu na nyanya, kisha kata vitunguu vipande vidogo vidogo
+na nyanya vipande vya wastani, weka kila kimoja kwenye bakuli tofauti."
+"Weka sufuria jikoni kwenye moto wa wastani, mimina mafuta kiasi cha
+kutosha, subiri sekunde 30 mpaka mafuta yapate joto kabla ya kuweka
+vitunguu."
+
+Hatua hizo zinaweza kuwa ndefu - HILO NI SAWA na LINATAKIWA. Lengo ni user
+AELEWE KIKAMILIFU bila kuhitaji kuuliza swali lolote la ziada.
+
+MWONGOZO MWINGINE:
 - Kila kiungo lazima kiwe na kipimo
 - Ingredients: vitu 6 hadi 10
-- Steps kwa kila njia: hatua 5 hadi 8, maneno 15-30 kila hatua
-- Tips: nasaha 1-2 fupi
+- Steps kwa kila njia: hatua 6 hadi 10, kila moja ikiwa na maelezo kamili
+  kama mfano hapo juu
+- Tips: nasaha 2-3 zenye maelezo, si sentensi fupi tu
 
 Jibu JSON pekee, muundo huu:
 {{
@@ -62,14 +85,17 @@ Jibu JSON pekee, muundo huu:
   "tips": ""
 }}"""
 
-PRO_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi. Mtumiaji ana viungo hivi
-nyumbani: "{ingredients}".
+
+PRO_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi anayefundisha watu wapya
+kabisa jikoni. Mtumiaji ana viungo hivi nyumbani: "{ingredients}".
 
 Toa mapendekezo ya vyakula 3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo
-(au viungo hivyo pamoja na vitu vichache vya kawaida vinavyopatikana kila
-nyumbani, kama chumvi/maji/mafuta). Kwa KILA pendekezo, toa PIA hatua fupi za
-namna ya kuvitengeneza (hatua 4-6, maneno 15-25 kila hatua) - si maelezo
-mafupi tu, bali maelekezo kamili ya kupika chakula hicho.
+(au pamoja na vitu vya kawaida vinavyopatikana kila nyumbani kama chumvi/maji/
+mafuta). Kwa KILA pendekezo, toa hatua ZENYE MAELEZO YA KINA na UWAZI KAMILI -
+kama ungekuwa unamfundisha mtu asiyejua kupika kabisa. Eleza kitendo, vifaa,
+jinsi gani, na kwa muda/hali gani (mfano: "kaanga hadi kiwe cha rangi ya
+dhahabu", si "kaanga" tu). Hatua zinaweza kuwa ndefu - hilo ni sawa, lengo ni
+UELEWA KAMILI.
 
 Andika JIBU LOTE kwa lugha ya {lang_name}.
 
@@ -78,9 +104,9 @@ Jibu JSON pekee, muundo huu:
   "suggestions": [
     {{
       "food_name": "jina la chakula",
-      "short_description": "sentensi 1-2 fupi kuhusu chakula hiki",
-      "extra_needed": ["kiungo cha ziada 1", "kiungo cha ziada 2"],
-      "steps": ["hatua 1", "hatua 2", "hatua 3"]
+      "short_description": "sentensi 1-2 kuhusu chakula hiki",
+      "extra_needed": ["kiungo cha ziada 1"],
+      "steps": ["hatua yenye maelezo kamili 1", "hatua yenye maelezo kamili 2"]
     }}
   ]
 }}"""
@@ -409,7 +435,7 @@ def identify_food():
                 response_mime_type="application/json",
                 response_schema=RESPONSE_SCHEMA,
                 temperature=0.3,
-                max_output_tokens=12000,
+                max_output_tokens=16000,
             ),
         )
 
@@ -461,7 +487,7 @@ def pro_suggest():
                 response_mime_type="application/json",
                 response_schema=PRO_RESPONSE_SCHEMA,
                 temperature=0.4,
-                max_output_tokens=6000,
+                max_output_tokens=10000,
             ),
         )
 
