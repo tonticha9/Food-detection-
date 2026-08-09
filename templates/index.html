@@ -120,7 +120,7 @@
 
     <section id="proPage" class="page" style="display:none;">
       <h3>🧑‍🍳 Nina Viungo Hivi, Nipike Nini?</h3>
-      <p class="pro-subtitle">Andika viungo ulivyonavyo nyumbani, tutakupendekezea vyakula unavyoweza kupika.</p>
+      <p class="pro-subtitle">Andika viungo ulivyonavyo nyumbani, tutakupendekezea vyakula unavyoweza kupika, pamoja na jinsi ya kuvitengeneza.</p>
       <textarea id="proIngredients" rows="3" placeholder="Mfano: unga wa ngano, mafuta, sukari, mayai..."></textarea>
       <button type="button" id="proSubmitBtn">Tafuta Mapendekezo</button>
 
@@ -178,6 +178,28 @@
         </div>
         <button type="button" id="adminPanelBtn" class="admin-btn" style="display:none;">⚙️ Admin Panel</button>
         <button type="button" id="logoutBtn" class="logout-btn">Toka (Logout)</button>
+      </div>
+    </div>
+
+    <div id="logoutConfirmModal" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+        <h3>🔐 Thibitisha Logout</h3>
+        <p>Uko tayari kutoka kwenye akaunti ya:</p>
+        <p class="admin-current-value" id="logoutEmailDisplay"></p>
+        <button type="button" id="confirmLogoutBtn" class="logout-btn">Ndiyo, Nitoke</button>
+        <button type="button" id="cancelLogoutBtn" class="admin-secondary-btn">Ghairi</button>
+      </div>
+    </div>
+
+    <div id="quotaExceededModal" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+        <h3>⏳ Umefikia Kikomo cha Leo</h3>
+        <p>Share link ya app hii kwa marafiki 2+ ili upate messages za ziada bure!</p>
+        <button type="button" id="shareWhatsappBtn" class="share-btn">📤 Share WhatsApp</button>
+        <button type="button" id="shareTelegramBtn" class="share-btn-telegram">📤 Share Telegram</button>
+        <button type="button" id="copyLinkBtn" class="admin-secondary-btn">🔗 Nakili Link</button>
+        <p id="referralStatus" class="admin-msg" style="display:none;"></p>
+        <button type="button" id="closeQuotaModalBtn" class="admin-secondary-btn">Funga</button>
       </div>
     </div>
 
