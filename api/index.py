@@ -63,6 +63,27 @@ Jibu JSON pekee, muundo huu:
   "tips": ""
 }}"""
 
+PRO_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi. Mtumiaji ana viungo hivi
+nyumbani: "{ingredients}".
+
+Toa mapendekezo ya vyakula 3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo
+(au viungo hivyo pamoja na vitu vichache vya kawaida vinavyopatikana kila
+nyumbani, kama chumvi/maji/mafuta). Kwa kila pendekezo, taja kama kuna kiungo
+kimoja au viwili vya ziada anavyoweza kuhitaji kununua.
+
+Andika JIBU LOTE kwa lugha ya {lang_name}.
+
+Jibu JSON pekee, muundo huu:
+{{
+  "suggestions": [
+    {{
+      "food_name": "jina la chakula",
+      "short_description": "sentensi 1-2 fupi kuhusu chakula hiki",
+      "extra_needed": ["kiungo cha ziada 1", "kiungo cha ziada 2"]
+    }}
+  ]
+}}"""
+
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -108,6 +129,25 @@ RESPONSE_SCHEMA = {
         "tips": {"type": "string"},
     },
     "required": ["food_name", "confidence", "origin", "ingredients", "nutrition", "cooking_methods", "tips"],
+}
+
+PRO_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "suggestions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "food_name": {"type": "string"},
+                    "short_description": {"type": "string"},
+                    "extra_needed": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["food_name", "short_description", "extra_needed"],
+            },
+        }
+    },
+    "required": ["suggestions"],
 }
 
 
@@ -205,6 +245,22 @@ def save_history(user_id, food_name, data):
     )
 
 
+def check_and_consume_quota(user):
+    """Rudisha (profile, error_response) - error_response ni None kama sawa."""
+    full_name = user.get("user_metadata", {}).get("full_name", "")
+    prof = get_or_create_profile(user["id"], full_name)
+    prof = reset_quota_if_new_day(prof)
+
+    total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
+    if prof["messages_used_today"] >= total_allowed:
+        return prof, (jsonify({
+            "error": "quota_exceeded",
+            "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
+            "share_url": "https://world-food-scanner.vercel.app"
+        }), 429)
+    return prof, None
+
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -254,17 +310,9 @@ def identify_food():
     if not user:
         return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
 
-    full_name = user.get("user_metadata", {}).get("full_name", "")
-    prof = get_or_create_profile(user["id"], full_name)
-    prof = reset_quota_if_new_day(prof)
-
-    total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
-    if prof["messages_used_today"] >= total_allowed:
-        return jsonify({
-            "error": "quota_exceeded",
-            "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
-            "share_url": "https://world-food-scanner.vercel.app"
-        }), 429
+    prof, error_resp = check_and_consume_quota(user)
+    if error_resp:
+        return error_resp
 
     if "image" not in request.files:
         return jsonify({"error": "Hakuna picha iliyotumwa"}), 400
@@ -310,6 +358,55 @@ def identify_food():
 
         increment_usage(user["id"], prof["messages_used_today"])
         save_history(user["id"], result.get("food_name", ""), result)
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
+
+
+@app.route("/api/pro-suggest", methods=["POST"])
+def pro_suggest():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
+
+    prof, error_resp = check_and_consume_quota(user)
+    if error_resp:
+        return error_resp
+
+    body = request.get_json() or {}
+    ingredients = (body.get("ingredients") or "").strip()
+    lang_code = body.get("lang", "sw")
+    lang_name = LANG_NAMES.get(lang_code, "Kiswahili")
+
+    if not ingredients:
+        return jsonify({"error": "Andika angalau kiungo kimoja"}), 400
+
+    try:
+        prompt = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
+
+        response = client.models.generate_content(
+            model="gemini-3.5-flash",
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=PRO_RESPONSE_SCHEMA,
+                temperature=0.4,
+                max_output_tokens=4000,
+            ),
+        )
+
+        raw_text = response.text
+        if not raw_text:
+            return jsonify({"error": "Gemini haikurudisha jibu"}), 500
+
+        try:
+            result = json.loads(raw_text)
+        except json.JSONDecodeError:
+            result = json.loads(raw_text, strict=False)
+
+        increment_usage(user["id"], prof["messages_used_today"])
 
         return jsonify(result), 200
 
