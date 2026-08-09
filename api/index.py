@@ -38,7 +38,25 @@ kidogo) kwa uvumilivu na uwazi mkubwa.
 Andika JIBU LOTE kwa lugha ya {lang_name} pekee (majina ya vyakula yanaweza
 kubaki kwa lugha asilia kama hayana tafsiri nzuri).
 
-Utapewa picha ya chakula. Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI,
+HATUA YA KWANZA YA LAZIMA - THIBITISHA KAMA NI CHAKULA:
+Kabla ya kufanya kitu kingine chochote, angalia picha KWA UANGALIFU MKUBWA.
+Weka "is_food": true TU KAMA picha inaonyesha chakula halisi kilichopikwa au
+kiko tayari kuliwa. Weka "is_food": false kama picha inaonyesha kitu
+KISICHOKUWA CHAKULA - mfano: mtu, mnyama hai, gari, jengo, mti, kitu cha
+nyumbani kisicho chakula, screenshot, maandishi, au chochote kisichohusiana
+na chakula. USIBUNI wala USIKISIE chakula kama huoni chakula halisi kwenye
+picha - hii ni MUHIMU SANA, usijaribu "kusaidia" kwa kutengeneza jibu la
+uongo.
+
+Kama is_food ni false: weka food_name kama "", ingredients kama [], tips kama
+maelezo mafupi (kwa lugha ya {lang_name}) ukimwambia mtumiaji picha
+haionyeshi chakula, na omba apige picha nyingine ya chakula halisi.
+Cooking_methods.jiko_kawaida weka description="" na steps=[] na
+cooking_time="".
+
+Kama is_food ni true, endelea na hatua zifuatazo:
+
+Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI,
 makadirio ya lishe, kisha toa NJIA MBILI za kupika: "jiko_kawaida" (mkaa/gesi/
 sufuria ya kawaida) na "njia_ya_kisasa" (oveni/blender/air fryer, au null kama
 havihitajiki).
@@ -73,6 +91,7 @@ MWONGOZO MWINGINE:
 
 Jibu JSON pekee, muundo huu:
 {{
+  "is_food": true,
   "food_name": "jina",
   "confidence": "high/medium/low",
   "origin": "asili",
@@ -85,22 +104,37 @@ Jibu JSON pekee, muundo huu:
   "tips": ""
 }}"""
 
-
 PRO_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi anayefundisha watu wapya
-kabisa jikoni. Mtumiaji ana viungo hivi nyumbani: "{ingredients}".
+kabisa jikoni. Mtumiaji ameandika hivi kama viungo alivyonavyo nyumbani:
+"{ingredients}".
 
-Toa mapendekezo ya vyakula 3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo
-(au pamoja na vitu vya kawaida vinavyopatikana kila nyumbani kama chumvi/maji/
-mafuta). Kwa KILA pendekezo, toa hatua ZENYE MAELEZO YA KINA na UWAZI KAMILI -
-kama ungekuwa unamfundisha mtu asiyejua kupika kabisa. Eleza kitendo, vifaa,
-jinsi gani, na kwa muda/hali gani (mfano: "kaanga hadi kiwe cha rangi ya
-dhahabu", si "kaanga" tu). Hatua zinaweza kuwa ndefu - hilo ni sawa, lengo ni
-UELEWA KAMILI.
+HATUA YA KWANZA YA LAZIMA - THIBITISHA KAMA NI VIUNGO HALISI VYA CHAKULA:
+Angalia maandishi haya kwa uangalifu. Weka "is_valid": true TU KAMA maandishi
+haya yanaeleza viungo halisi vya chakula (mfano: unga, mafuta, nyanya, kuku,
+sukari, n.k), hata kama vimeandikwa kwa lugha isiyo rasmi au yenye makosa
+kidogo ya spelling. Weka "is_valid": false kama maandishi ni kitu kisicho
+viungo vya chakula kabisa - mfano: majina ya watu, maneno yasiyo na maana,
+vitu vya nyumbani visivyoliwa, au maandishi ya ovyo/random. USIBUNI vyakula
+kama hujaona viungo halisi vya chakula - hii ni MUHIMU SANA.
+
+Kama is_valid ni false: weka suggestions kama [] (array tupu), na weka
+"message" (kwa lugha ya {lang_name}) ukimwambia mtumiaji aandike viungo halisi
+vya chakula alivyonavyo nyumbani.
+
+Kama is_valid ni true: weka message kama "", kisha toa mapendekezo ya vyakula
+3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo (au pamoja na vitu vya
+kawaida vinavyopatikana kila nyumbani kama chumvi/maji/mafuta). Kwa KILA
+pendekezo, toa hatua ZENYE MAELEZO YA KINA na UWAZI KAMILI - kama ungekuwa
+unamfundisha mtu asiyejua kupika kabisa. Eleza kitendo, vifaa, jinsi gani, na
+kwa muda/hali gani (mfano: "kaanga hadi kiwe cha rangi ya dhahabu", si
+"kaanga" tu). Hatua zinaweza kuwa ndefu - hilo ni sawa, lengo ni UELEWA KAMILI.
 
 Andika JIBU LOTE kwa lugha ya {lang_name}.
 
 Jibu JSON pekee, muundo huu:
 {{
+  "is_valid": true,
+  "message": "",
   "suggestions": [
     {{
       "food_name": "jina la chakula",
@@ -114,6 +148,7 @@ Jibu JSON pekee, muundo huu:
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
+        "is_food": {"type": "boolean"},
         "food_name": {"type": "string"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "origin": {"type": "string"},
@@ -155,12 +190,14 @@ RESPONSE_SCHEMA = {
         },
         "tips": {"type": "string"},
     },
-    "required": ["food_name", "confidence", "origin", "ingredients", "nutrition", "cooking_methods", "tips"],
+    "required": ["is_food", "food_name", "confidence", "origin", "ingredients", "nutrition", "cooking_methods", "tips"],
 }
 
 PRO_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
+        "is_valid": {"type": "boolean"},
+        "message": {"type": "string"},
         "suggestions": {
             "type": "array",
             "items": {
@@ -175,7 +212,7 @@ PRO_RESPONSE_SCHEMA = {
             },
         }
     },
-    "required": ["suggestions"],
+    "required": ["is_valid", "message", "suggestions"],
 }
 
 
@@ -308,7 +345,6 @@ def save_history(user_id, food_name, data):
 
 
 def check_and_consume_quota(user):
-    """Rudisha (profile, error_response, is_unlimited)."""
     full_name = user.get("user_metadata", {}).get("full_name", "")
     prof = get_or_create_profile(user["id"], full_name)
     prof = reset_quota_if_new_day(prof)
@@ -448,9 +484,14 @@ def identify_food():
         except json.JSONDecodeError:
             result = json.loads(raw_text, strict=False)
 
-        if not is_unlimited:
-            increment_usage(user["id"], prof["messages_used_today"])
-        save_history(user["id"], result.get("food_name", ""), result)
+        is_valid_food = result.get("is_food", True)
+
+        # Kama picha si chakula, si haki kumtoza mtumiaji "message" - hairuhusiwi
+        # kuhesabiwa kwenye quota wala kuhifadhiwa kwenye history
+        if is_valid_food:
+            if not is_unlimited:
+                increment_usage(user["id"], prof["messages_used_today"])
+            save_history(user["id"], result.get("food_name", ""), result)
 
         return jsonify(result), 200
 
@@ -500,7 +541,10 @@ def pro_suggest():
         except json.JSONDecodeError:
             result = json.loads(raw_text, strict=False)
 
-        if not is_unlimited:
+        is_valid_ingredients = result.get("is_valid", True)
+
+        # Kama si viungo halisi, si haki kumtoza mtumiaji "message"
+        if is_valid_ingredients and not is_unlimited:
             increment_usage(user["id"], prof["messages_used_today"])
 
         return jsonify(result), 200
@@ -638,7 +682,6 @@ def admin_get_settings():
     return jsonify(settings)
 
 
-
 @app.route("/api/admin/settings", methods=["POST"])
 def admin_update_settings():
     _, error_resp = require_admin(request)
@@ -654,6 +697,7 @@ def admin_update_settings():
         set_setting("default_message_limit", str(body["default_message_limit"]))
 
         if body.get("apply_to_all"):
+            # Sasisha messages_limit ya WATUMIAJI WOTE waliopo tayari (si wapya tu)
             requests.patch(
                 f"{REST_URL}/profiles",
                 headers=SERVICE_HEADERS,
@@ -666,6 +710,7 @@ def admin_update_settings():
         set_setting("referral_bonus_messages", str(body["referral_bonus_messages"]))
 
     return jsonify({"ok": True})
+
 
 @app.route("/api/admin/settings/clear-gemini-key", methods=["POST"])
 def admin_clear_gemini_key():
