@@ -15,7 +15,8 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
-ENV_GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -60,27 +61,6 @@ Jibu JSON pekee, muundo huu:
     "njia_ya_kisasa": {{"description":"","steps":[""],"cooking_time":""}}
   }},
   "tips": ""
-}}"""
-
-PRO_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi. Mtumiaji ana viungo hivi
-nyumbani: "{ingredients}".
-
-Toa mapendekezo ya vyakula 3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo
-(au viungo hivyo pamoja na vitu vichache vya kawaida vinavyopatikana kila
-nyumbani, kama chumvi/maji/mafuta). Kwa kila pendekezo, taja kama kuna kiungo
-kimoja au viwili vya ziada anavyoweza kuhitaji kununua.
-
-Andika JIBU LOTE kwa lugha ya {lang_name}.
-
-Jibu JSON pekee, muundo huu:
-{{
-  "suggestions": [
-    {{
-      "food_name": "jina la chakula",
-      "short_description": "sentensi 1-2 fupi kuhusu chakula hiki",
-      "extra_needed": ["kiungo cha ziada 1", "kiungo cha ziada 2"]
-    }}
-  ]
 }}"""
 
 RESPONSE_SCHEMA = {
@@ -130,25 +110,6 @@ RESPONSE_SCHEMA = {
     "required": ["food_name", "confidence", "origin", "ingredients", "nutrition", "cooking_methods", "tips"],
 }
 
-PRO_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "suggestions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "food_name": {"type": "string"},
-                    "short_description": {"type": "string"},
-                    "extra_needed": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["food_name", "short_description", "extra_needed"],
-            },
-        }
-    },
-    "required": ["suggestions"],
-}
-
 
 def get_authenticated_user(req):
     auth_header = req.headers.get("Authorization", "")
@@ -165,26 +126,6 @@ def get_authenticated_user(req):
     return resp.json()
 
 
-def is_admin(user_id):
-    resp = requests.get(
-        f"{REST_URL}/admins",
-        headers=SERVICE_HEADERS,
-        params={"user_id": f"eq.{user_id}", "select": "user_id"},
-        timeout=10,
-    )
-    return resp.status_code == 200 and len(resp.json()) > 0
-
-
-def require_admin(req):
-    """Rudisha (user, error_response). error_response ni None kama sawa."""
-    user = get_authenticated_user(req)
-    if not user:
-        return None, (jsonify({"error": "Login required"}), 401)
-    if not is_admin(user["id"]):
-        return None, (jsonify({"error": "Huna ruhusa ya admin"}), 403)
-    return user, None
-
-
 def get_setting(key, default=""):
     resp = requests.get(
         f"{REST_URL}/app_settings",
@@ -195,22 +136,6 @@ def get_setting(key, default=""):
     if resp.status_code == 200 and resp.json():
         return resp.json()[0]["value"]
     return default
-
-
-def set_setting(key, value):
-    requests.post(
-        f"{REST_URL}/app_settings",
-        headers={**SERVICE_HEADERS, "Prefer": "resolution=merge-duplicates"},
-        json={"key": key, "value": value},
-        timeout=10,
-    )
-
-
-def get_gemini_client():
-    """Tumia key kutoka database (admin-set) kama ipo, la sivyo env variable."""
-    db_key = get_setting("gemini_api_key", "")
-    active_key = db_key if db_key else ENV_GEMINI_KEY
-    return genai.Client(api_key=active_key)
 
 
 def get_or_create_profile(user_id, full_name=""):
@@ -280,21 +205,6 @@ def save_history(user_id, food_name, data):
     )
 
 
-def check_and_consume_quota(user):
-    full_name = user.get("user_metadata", {}).get("full_name", "")
-    prof = get_or_create_profile(user["id"], full_name)
-    prof = reset_quota_if_new_day(prof)
-
-    total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
-    if prof["messages_used_today"] >= total_allowed:
-        return prof, (jsonify({
-            "error": "quota_exceeded",
-            "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
-            "share_url": "https://world-food-scanner.vercel.app"
-        }), 429)
-    return prof, None
-
-
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -335,7 +245,6 @@ def profile():
         "messages_limit": prof["messages_limit"],
         "bonus_messages": prof.get("bonus_messages", 0),
         "remaining": max(0, remaining),
-        "is_admin": is_admin(user["id"]),
     })
 
 
@@ -345,9 +254,17 @@ def identify_food():
     if not user:
         return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
 
-    prof, error_resp = check_and_consume_quota(user)
-    if error_resp:
-        return error_resp
+    full_name = user.get("user_metadata", {}).get("full_name", "")
+    prof = get_or_create_profile(user["id"], full_name)
+    prof = reset_quota_if_new_day(prof)
+
+    total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
+    if prof["messages_used_today"] >= total_allowed:
+        return jsonify({
+            "error": "quota_exceeded",
+            "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
+            "share_url": "https://world-food-scanner.vercel.app"
+        }), 429
 
     if "image" not in request.files:
         return jsonify({"error": "Hakuna picha iliyotumwa"}), 400
@@ -367,9 +284,8 @@ def identify_food():
         image_bytes = buffer.getvalue()
 
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
-        gemini_client = get_gemini_client()
 
-        response = gemini_client.models.generate_content(
+        response = client.models.generate_content(
             model="gemini-3.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
@@ -394,56 +310,6 @@ def identify_food():
 
         increment_usage(user["id"], prof["messages_used_today"])
         save_history(user["id"], result.get("food_name", ""), result)
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
-
-
-@app.route("/api/pro-suggest", methods=["POST"])
-def pro_suggest():
-    user = get_authenticated_user(request)
-    if not user:
-        return jsonify({"error": "Tafadhali ingia (login) kwanza kutumia app hii"}), 401
-
-    prof, error_resp = check_and_consume_quota(user)
-    if error_resp:
-        return error_resp
-
-    body = request.get_json() or {}
-    ingredients = (body.get("ingredients") or "").strip()
-    lang_code = body.get("lang", "sw")
-    lang_name = LANG_NAMES.get(lang_code, "Kiswahili")
-
-    if not ingredients:
-        return jsonify({"error": "Andika angalau kiungo kimoja"}), 400
-
-    try:
-        prompt = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
-        gemini_client = get_gemini_client()
-
-        response = gemini_client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=PRO_RESPONSE_SCHEMA,
-                temperature=0.4,
-                max_output_tokens=4000,
-            ),
-        )
-
-        raw_text = response.text
-        if not raw_text:
-            return jsonify({"error": "Gemini haikurudisha jibu"}), 500
-
-        try:
-            result = json.loads(raw_text)
-        except json.JSONDecodeError:
-            result = json.loads(raw_text, strict=False)
-
-        increment_usage(user["id"], prof["messages_used_today"])
 
         return jsonify(result), 200
 
@@ -499,116 +365,6 @@ def favorites():
             timeout=10,
         )
         return jsonify({"ok": True})
-
-
-# ============ ADMIN ENDPOINTS ============
-
-@app.route("/api/admin/users", methods=["GET"])
-def admin_list_users():
-    _, error_resp = require_admin(request)
-    if error_resp:
-        return error_resp
-
-    resp = requests.get(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"select": "*", "order": "created_at.desc"},
-        timeout=10,
-    )
-    return jsonify(resp.json() if resp.status_code == 200 else [])
-
-
-@app.route("/api/admin/users/<user_id>", methods=["DELETE"])
-def admin_delete_user(user_id):
-    _, error_resp = require_admin(request)
-    if error_resp:
-        return error_resp
-
-    # Kufuta kwenye auth.users kuna-cascade kufuta profiles/history/favorites
-    resp = requests.delete(
-        f"{AUTH_URL}/admin/users/{user_id}",
-        headers=SERVICE_HEADERS,
-        timeout=10,
-    )
-    if resp.status_code not in (200, 204):
-        return jsonify({"error": "Imeshindwa kufuta mtumiaji"}), 500
-    return jsonify({"ok": True})
-
-
-@app.route("/api/admin/users/<user_id>/limit", methods=["POST"])
-def admin_update_user_limit(user_id):
-    _, error_resp = require_admin(request)
-    if error_resp:
-        return error_resp
-
-    body = request.get_json() or {}
-    new_limit = body.get("messages_limit")
-    if new_limit is None:
-        return jsonify({"error": "messages_limit inahitajika"}), 400
-
-    requests.patch(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"id": f"eq.{user_id}"},
-        json={"messages_limit": int(new_limit)},
-        timeout=10,
-    )
-    return jsonify({"ok": True})
-
-
-@app.route("/api/admin/settings", methods=["GET"])
-def admin_get_settings():
-    _, error_resp = require_admin(request)
-    if error_resp:
-        return error_resp
-
-    resp = requests.get(
-        f"{REST_URL}/app_settings",
-        headers=SERVICE_HEADERS,
-        params={"select": "*"},
-        timeout=10,
-    )
-    rows = resp.json() if resp.status_code == 200 else []
-    settings = {r["key"]: r["value"] for r in rows}
-
-    # Ficha sehemu kubwa ya API key kwa usalama wa kuonyesha kwenye UI
-    key = settings.get("gemini_api_key", "")
-    if key:
-        settings["gemini_api_key_masked"] = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
-    else:
-        settings["gemini_api_key_masked"] = "(inatumia Environment Variable)"
-    settings.pop("gemini_api_key", None)
-
-    return jsonify(settings)
-
-
-@app.route("/api/admin/settings", methods=["POST"])
-def admin_update_settings():
-    _, error_resp = require_admin(request)
-    if error_resp:
-        return error_resp
-
-    body = request.get_json() or {}
-
-    if "gemini_api_key" in body and body["gemini_api_key"]:
-        set_setting("gemini_api_key", body["gemini_api_key"])
-
-    if "default_message_limit" in body:
-        set_setting("default_message_limit", str(body["default_message_limit"]))
-
-    if "referral_bonus_messages" in body:
-        set_setting("referral_bonus_messages", str(body["referral_bonus_messages"]))
-
-    return jsonify({"ok": True})
-
-
-@app.route("/api/admin/settings/clear-gemini-key", methods=["POST"])
-def admin_clear_gemini_key():
-    _, error_resp = require_admin(request)
-    if error_resp:
-        return error_resp
-    set_setting("gemini_api_key", "")
-    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
