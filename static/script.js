@@ -147,6 +147,9 @@ const userMenuBtn = document.getElementById("userMenuBtn");
 const userMenuModal = document.getElementById("userMenuModal");
 const closeUserMenuBtn = document.getElementById("closeUserMenuBtn");
 const logoutBtn = document.getElementById("logoutBtn");
+const logoutConfirmModal = document.getElementById("logoutConfirmModal");
+const confirmLogoutBtn = document.getElementById("confirmLogoutBtn");
+const cancelLogoutBtn = document.getElementById("cancelLogoutBtn");
 
 userMenuBtn.addEventListener("click", () => {
   document.getElementById("userMenuName").textContent =
@@ -154,9 +157,20 @@ userMenuBtn.addEventListener("click", () => {
   userMenuModal.style.display = "flex";
 });
 closeUserMenuBtn.addEventListener("click", () => { userMenuModal.style.display = "none"; });
-logoutBtn.addEventListener("click", async () => {
+
+logoutBtn.addEventListener("click", () => {
+  userMenuModal.style.display = "none";
+  document.getElementById("logoutEmailDisplay").textContent = currentUser?.email || "";
+  logoutConfirmModal.style.display = "flex";
+});
+
+confirmLogoutBtn.addEventListener("click", async () => {
   await sb.auth.signOut();
   location.reload();
+});
+
+cancelLogoutBtn.addEventListener("click", () => {
+  logoutConfirmModal.style.display = "none";
 });
 
 /* ================= After Login ================= */
@@ -175,7 +189,11 @@ async function refreshQuota() {
     const data = await res.json();
     const bar = document.getElementById("quotaBar");
     const text = document.getElementById("quotaText");
-    text.textContent = `📊 Umetumia ${data.messages_used_today}/${data.messages_limit + data.bonus_messages} leo`;
+    if (data.is_admin) {
+      text.textContent = "👑 Admin - Ratili bila kikomo";
+    } else {
+      text.textContent = `📊 Umetumia ${data.messages_used_today}/${data.messages_limit + data.bonus_messages} leo`;
+    }
     bar.style.display = "block";
   } catch {}
 }
@@ -269,6 +287,15 @@ form.addEventListener("submit", async (e) => {
   try {
     const headers = await getAuthHeader();
     const response = await fetch("/api/identify-food", { method: "POST", headers, body: formData });
+
+    if (response.status === 429) {
+      stopLoadingAnimation();
+      loading.style.display = "none";
+      submitBtn.disabled = false;
+      document.getElementById("quotaExceededModal").style.display = "flex";
+      return;
+    }
+
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) {
       throw new Error("Picha ni kubwa mno au server imeshindwa kujibu. Jaribu tena.");
@@ -278,9 +305,6 @@ form.addEventListener("submit", async (e) => {
     if (response.status === 401) {
       showAuthModal();
       throw new Error("Tafadhali ingia (login) kwanza.");
-    }
-    if (response.status === 429) {
-      throw new Error(`${data.message}\n\nShare: ${data.share_url}`);
     }
     if (!response.ok) {
       throw new Error(data.error || "Hitilafu imetokea");
@@ -500,19 +524,28 @@ document.getElementById("proSubmitBtn").addEventListener("click", async () => {
       method: "POST", headers,
       body: JSON.stringify({ ingredients, lang: currentLang || "sw" }),
     });
+
+    if (res.status === 429) {
+      proLoading.style.display = "none";
+      document.getElementById("quotaExceededModal").style.display = "flex";
+      return;
+    }
+
     const data = await res.json();
 
     if (res.status === 401) { showAuthModal(); throw new Error("Tafadhali ingia kwanza."); }
-    if (res.status === 429) throw new Error(`${data.message}`);
     if (!res.ok) throw new Error(data.error || "Hitilafu imetokea");
 
     (data.suggestions || []).forEach((s) => {
       const card = document.createElement("div");
       card.className = "pro-card";
+      const stepsHtml = (s.steps || []).map((step) => `<li>${step}</li>`).join("");
       card.innerHTML = `
         <strong>${s.food_name}</strong>
         <p>${s.short_description}</p>
         <p class="pro-extra"><em>Utahitaji ziada: ${(s.extra_needed || []).join(", ") || "hakuna"}</em></p>
+        <p class="pro-steps-title">👩‍🍳 Jinsi ya kutengeneza:</p>
+        <ol class="pro-steps-list">${stepsHtml}</ol>
       `;
       proResults.appendChild(card);
     });
@@ -532,6 +565,45 @@ const aboutModal = document.getElementById("aboutModal");
 aboutBtn.addEventListener("click", () => { aboutModal.style.display = "flex"; });
 closeAboutBtn.addEventListener("click", () => { aboutModal.style.display = "none"; });
 aboutModal.addEventListener("click", (e) => { if (e.target === aboutModal) aboutModal.style.display = "none"; });
+
+/* ================= Quota Exceeded / Referral ================= */
+const SHARE_URL = "https://world-food-scanner.vercel.app";
+const SHARE_TEXT = "Jaribu app hii ya kutambua chakula chochote duniani kwa picha tu! 🍲";
+
+document.getElementById("shareWhatsappBtn").addEventListener("click", async () => {
+  window.open(`https://wa.me/?text=${encodeURIComponent(SHARE_TEXT + " " + SHARE_URL)}`, "_blank");
+  await claimReferralBonus();
+});
+
+document.getElementById("shareTelegramBtn").addEventListener("click", async () => {
+  window.open(`https://t.me/share/url?url=${encodeURIComponent(SHARE_URL)}&text=${encodeURIComponent(SHARE_TEXT)}`, "_blank");
+  await claimReferralBonus();
+});
+
+document.getElementById("copyLinkBtn").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(SHARE_URL);
+    document.getElementById("referralStatus").textContent = "✅ Link imenakiliwa! Tuma kwa marafiki 2+";
+    document.getElementById("referralStatus").style.display = "block";
+  } catch {}
+});
+
+document.getElementById("closeQuotaModalBtn").addEventListener("click", () => {
+  document.getElementById("quotaExceededModal").style.display = "none";
+});
+
+async function claimReferralBonus() {
+  try {
+    const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+    const res = await fetch("/api/claim-referral-bonus", { method: "POST", headers });
+    if (!res.ok) return;
+    const data = await res.json();
+    const statusEl = document.getElementById("referralStatus");
+    statusEl.textContent = `✅ Umepata messages za ziada! Bonus jumla: ${data.bonus_messages}`;
+    statusEl.style.display = "block";
+    refreshQuota();
+  } catch {}
+}
 
 /* ================= Admin Panel ================= */
 const adminPanelBtn = document.getElementById("adminPanelBtn");
