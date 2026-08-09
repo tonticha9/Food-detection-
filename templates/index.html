@@ -11,6 +11,7 @@
 </head>
 <body>
 
+  <!-- LANGUAGE SELECTOR (mara ya kwanza) -->
   <div id="langModal" class="modal-overlay" style="display:none;">
     <div class="modal-box">
       <h3>🌍 Chagua Lugha / Choose Language</h3>
@@ -22,14 +23,19 @@
     </div>
   </div>
 
+  <!-- AUTH MODAL (Signup / Login) -->
   <div id="authModal" class="modal-overlay" style="display:none;">
     <div class="modal-box">
       <h3 id="authTitle">🔐 Ingia</h3>
+
       <div id="authError" class="auth-error" style="display:none;"></div>
+
       <input type="text" id="authFullName" placeholder="Jina lako kamili" style="display:none;">
       <input type="email" id="authEmail" placeholder="Barua pepe (email)">
       <input type="password" id="authPassword" placeholder="Password">
+
       <button type="button" id="authSubmitBtn">Ingia</button>
+
       <p class="auth-switch">
         <span id="authSwitchText">Huna akaunti?</span>
         <a href="#" id="authSwitchLink">Jisajili</a>
@@ -155,7 +161,6 @@
         <button type="button" id="closeAboutBtn" class="modal-close">✕</button>
         <h3>👨‍💻 Kuhusu App Hii</h3>
         <p>App hii iliundwa na <strong>Braiton Living</strong> — mtengenezaji wa programu kutoka Tanzania, akitumia fursa za teknolojia ya AI kuleta suluhisho la vitendo kwa jamii.</p>
-        <p>Mradi huu ni sehemu ya juhudi za kuleta ubunifu wa kiteknolojia karibu na watu wa kawaida — bila gharama kubwa, bila utata, moja kwa moja kutoka kwenye simu mkononi.</p>
       </div>
     </div>
 
@@ -176,42 +181,7 @@
           <button type="button" class="lang-option-btn small" data-lang="en">🇬🇧 En</button>
           <button type="button" class="lang-option-btn small" data-lang="fr">🇫🇷 Fr</button>
         </div>
-        <button type="button" id="adminPanelBtn" class="admin-btn" style="display:none;">⚙️ Admin Panel</button>
         <button type="button" id="logoutBtn" class="logout-btn">Toka (Logout)</button>
-      </div>
-    </div>
-
-    <div id="adminModal" class="modal-overlay" style="display:none;">
-      <div class="modal-box modal-view">
-        <button type="button" id="closeAdminBtn" class="modal-close">✕</button>
-        <h3>⚙️ Admin Panel</h3>
-
-        <div class="admin-tabs">
-          <button type="button" class="admin-tab-btn active" data-atab="settings">Settings</button>
-          <button type="button" class="admin-tab-btn" data-atab="users">Watumiaji</button>
-        </div>
-
-        <div id="adminSettingsTab" class="admin-tab-content">
-          <label class="admin-label">Gemini API Key ya sasa:</label>
-          <p id="currentGeminiKey" class="admin-current-value">-</p>
-          <input type="text" id="newGeminiKey" placeholder="Bandika Gemini API key mpya">
-          <button type="button" id="saveGeminiKeyBtn">Hifadhi API Key</button>
-          <button type="button" id="clearGeminiKeyBtn" class="admin-secondary-btn">Futa (tumia Env Variable)</button>
-
-          <label class="admin-label" style="margin-top:16px;">Default Message Limit (kwa siku):</label>
-          <input type="number" id="defaultLimitInput" min="1">
-          <button type="button" id="saveDefaultLimitBtn">Hifadhi Limit</button>
-
-          <label class="admin-label" style="margin-top:16px;">Referral Bonus Messages:</label>
-          <input type="number" id="referralBonusInput" min="0">
-          <button type="button" id="saveReferralBonusBtn">Hifadhi Bonus</button>
-
-          <p id="adminSettingsMsg" class="admin-msg" style="display:none;"></p>
-        </div>
-
-        <div id="adminUsersTab" class="admin-tab-content" style="display:none;">
-          <div id="adminUsersList"></div>
-        </div>
       </div>
     </div>
   </div>
