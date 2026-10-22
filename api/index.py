@@ -2,8 +2,12 @@ import os
 import json
 import io
 import datetime
+import uuid
 
-import requests
+import psycopg2
+import psycopg2.extras
+import jwt as pyjwt
+import bcrypt
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from google import genai
 from google.genai import types
@@ -15,21 +19,17 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
-ENV_GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
-
-REST_URL = f"{SUPABASE_URL}/rest/v1"
-AUTH_URL = f"{SUPABASE_URL}/auth/v1"
-
-SERVICE_HEADERS = {
-    "apikey": SUPABASE_SERVICE_KEY,
-    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-    "Content-Type": "application/json",
-}
+ENV_GEMINI_KEY  = os.environ.get("GEMINI_API_KEY")
+DATABASE_URL    = os.environ.get("DATABASE_URL")
+JWT_SECRET      = os.environ.get("JWT_SECRET", "tambua-chakula-default-secret")
+JWT_ALGORITHM   = "HS256"
+JWT_EXPIRY_DAYS = 7
 
 LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
+
+# =====================================================================
+# PROMPTS & SCHEMAS (hazikubadilishwa)
+# =====================================================================
 
 SYSTEM_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi na lishe mwenye ujuzi wa
 vyakula vyote duniani, unayefundisha wapishi WAPYA KABISA (wasiojua kupika hata
@@ -216,29 +216,62 @@ PRO_RESPONSE_SCHEMA = {
 }
 
 
+# =====================================================================
+# DATABASE HELPERS
+# =====================================================================
+
+def get_db():
+    """Fungua connection mpya ya PostgreSQL."""
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    return conn
+
+
+def db_query(sql, params=(), fetchone=False, fetchall=False, commit=False):
+    """Helper ndogo: fanya query moja na funga connection."""
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        result = None
+        if fetchone:
+            result = cur.fetchone()
+            if result:
+                result = dict(result)
+        elif fetchall:
+            rows = cur.fetchall()
+            result = [dict(r) for r in rows]
+        if commit:
+            conn.commit()
+        cur.close()
+        return result
+    finally:
+        conn.close()
+
+
+# =====================================================================
+# AUTH HELPERS
+# =====================================================================
+
 def get_authenticated_user(req):
+    """Soma JWT token kutoka header, rudisha user dict au None."""
     auth_header = req.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
     token = auth_header.split(" ", 1)[1]
-    resp = requests.get(
-        f"{AUTH_URL}/user",
-        headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {token}"},
-        timeout=10,
-    )
-    if resp.status_code != 200:
+    try:
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return {
+            "id": payload["sub"],
+            "email": payload.get("email", ""),
+            "user_metadata": {"full_name": payload.get("full_name", "")},
+        }
+    except Exception:
         return None
-    return resp.json()
 
 
 def is_admin(user_id):
-    resp = requests.get(
-        f"{REST_URL}/admins",
-        headers=SERVICE_HEADERS,
-        params={"user_id": f"eq.{user_id}", "select": "user_id"},
-        timeout=10,
-    )
-    return resp.status_code == 200 and len(resp.json()) > 0
+    row = db_query("SELECT 1 FROM admins WHERE user_id = %s", (user_id,), fetchone=True)
+    return row is not None
 
 
 def require_admin(req):
@@ -250,24 +283,32 @@ def require_admin(req):
     return user, None
 
 
-def get_setting(key, default=""):
-    resp = requests.get(
-        f"{REST_URL}/app_settings",
-        headers=SERVICE_HEADERS,
-        params={"key": f"eq.{key}", "select": "value"},
-        timeout=10,
+def make_token(user_id, email, full_name):
+    exp = datetime.datetime.utcnow() + datetime.timedelta(days=JWT_EXPIRY_DAYS)
+    return pyjwt.encode(
+        {"sub": str(user_id), "email": email, "full_name": full_name or "", "exp": exp},
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
     )
-    if resp.status_code == 200 and resp.json():
-        return resp.json()[0]["value"]
-    return default
+
+
+# =====================================================================
+# SETTINGS HELPERS
+# =====================================================================
+
+def get_setting(key, default=""):
+    row = db_query(
+        "SELECT value FROM app_settings WHERE key = %s", (key,), fetchone=True
+    )
+    return row["value"] if row else default
 
 
 def set_setting(key, value):
-    requests.post(
-        f"{REST_URL}/app_settings",
-        headers={**SERVICE_HEADERS, "Prefer": "resolution=merge-duplicates"},
-        json={"key": key, "value": value},
-        timeout=10,
+    db_query(
+        "INSERT INTO app_settings (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        (key, value),
+        commit=True,
     )
 
 
@@ -277,70 +318,68 @@ def get_gemini_client():
     return genai.Client(api_key=active_key)
 
 
-def get_or_create_profile(user_id, full_name=""):
-    resp = requests.get(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"id": f"eq.{user_id}", "select": "*"},
-        timeout=10,
-    )
-    rows = resp.json() if resp.status_code == 200 else []
-    if rows:
-        return rows[0]
+# =====================================================================
+# PROFILE / QUOTA HELPERS
+# =====================================================================
 
-    default_limit = get_setting("default_message_limit", "5")
-    payload = {
+def get_or_create_profile(user_id, full_name=""):
+    row = db_query("SELECT * FROM profiles WHERE id = %s", (user_id,), fetchone=True)
+    if row:
+        return row
+
+    default_limit = int(get_setting("default_message_limit", "5"))
+    today = datetime.date.today()
+    new_row = db_query(
+        """INSERT INTO profiles
+               (id, full_name, messages_used_today, messages_limit,
+                bonus_messages, last_reset_date, referral_count)
+           VALUES (%s, %s, 0, %s, 0, %s, 0)
+           RETURNING *""",
+        (user_id, full_name or "Mtumiaji", default_limit, today),
+        fetchone=True,
+        commit=True,
+    )
+    return new_row or {
         "id": user_id,
         "full_name": full_name or "Mtumiaji",
         "messages_used_today": 0,
-        "messages_limit": int(default_limit),
+        "messages_limit": default_limit,
         "bonus_messages": 0,
-        "last_reset_date": str(datetime.date.today()),
+        "last_reset_date": str(today),
         "referral_count": 0,
     }
-    create_resp = requests.post(
-        f"{REST_URL}/profiles",
-        headers={**SERVICE_HEADERS, "Prefer": "return=representation"},
-        json=payload,
-        timeout=10,
-    )
-    if create_resp.status_code in (200, 201):
-        data = create_resp.json()
-        return data[0] if isinstance(data, list) else data
-    return payload
 
 
 def reset_quota_if_new_day(profile):
-    today = str(datetime.date.today())
-    if profile.get("last_reset_date") != today:
-        requests.patch(
-            f"{REST_URL}/profiles",
-            headers=SERVICE_HEADERS,
-            params={"id": f"eq.{profile['id']}"},
-            json={"messages_used_today": 0, "last_reset_date": today},
-            timeout=10,
-        )
-        profile["messages_used_today"] = 0
-        profile["last_reset_date"] = today
+    today = datetime.date.today()
+    last = profile.get("last_reset_date")
+    if last:
+        if isinstance(last, str):
+            last = datetime.date.fromisoformat(last)
+        if last != today:
+            db_query(
+                "UPDATE profiles SET messages_used_today = 0, last_reset_date = %s WHERE id = %s",
+                (today, profile["id"]),
+                commit=True,
+            )
+            profile["messages_used_today"] = 0
+            profile["last_reset_date"] = str(today)
     return profile
 
 
 def increment_usage(user_id, current_used):
-    requests.patch(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"id": f"eq.{user_id}"},
-        json={"messages_used_today": current_used + 1},
-        timeout=10,
+    db_query(
+        "UPDATE profiles SET messages_used_today = %s WHERE id = %s",
+        (current_used + 1, user_id),
+        commit=True,
     )
 
 
 def save_history(user_id, food_name, data):
-    requests.post(
-        f"{REST_URL}/history",
-        headers=SERVICE_HEADERS,
-        json={"user_id": user_id, "food_name": food_name, "data": data},
-        timeout=10,
+    db_query(
+        "INSERT INTO history (user_id, food_name, data) VALUES (%s, %s, %s::jsonb)",
+        (user_id, food_name, json.dumps(data)),
+        commit=True,
     )
 
 
@@ -350,17 +389,102 @@ def check_and_consume_quota(user):
     prof = reset_quota_if_new_day(prof)
 
     if is_admin(user["id"]):
-        return prof, None, True
+        return prof, None, True  # is_unlimited = True
 
     total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
     if prof["messages_used_today"] >= total_allowed:
         return prof, (jsonify({
             "error": "quota_exceeded",
             "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
-            "share_url": "https://world-food-scanner.vercel.app"
+            "share_url": "https://world-food-scanner.vercel.app",
         }), 429), False
     return prof, None, False
 
+
+# =====================================================================
+# AUTH ENDPOINTS (mpya - badala ya Supabase Auth)
+# =====================================================================
+
+@app.route("/api/auth/register", methods=["POST"])
+def auth_register():
+    body = request.get_json() or {}
+    email     = (body.get("email") or "").strip().lower()
+    password  = body.get("password") or ""
+    full_name = (body.get("full_name") or "").strip()
+
+    if not email or not password:
+        return jsonify({"error": "Email na password vinahitajika"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password iwe na herufi 6 au zaidi"}), 400
+
+    try:
+        existing = db_query("SELECT id FROM profiles WHERE email = %s", (email,), fetchone=True)
+        if existing:
+            return jsonify({"error": "Email hii tayari imesajiliwa"}), 400
+
+        user_id   = str(uuid.uuid4())
+        pw_hash   = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        def_limit = int(get_setting("default_message_limit", "5"))
+        today     = datetime.date.today()
+
+        db_query(
+            """INSERT INTO profiles
+                   (id, email, password_hash, full_name,
+                    messages_used_today, messages_limit, bonus_messages,
+                    last_reset_date, referral_count)
+               VALUES (%s, %s, %s, %s, 0, %s, 0, %s, 0)""",
+            (user_id, email, pw_hash, full_name or "Mtumiaji", def_limit, today),
+            commit=True,
+        )
+
+        token = make_token(user_id, email, full_name)
+        return jsonify({
+            "token": token,
+            "user": {"id": user_id, "email": email, "full_name": full_name},
+        }), 201
+
+    except Exception as e:
+        return jsonify({"error": f"Hitilafu: {str(e)}"}), 500
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    body     = request.get_json() or {}
+    email    = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+
+    if not email or not password:
+        return jsonify({"error": "Email na password vinahitajika"}), 400
+
+    try:
+        row = db_query(
+            "SELECT id, email, password_hash, full_name FROM profiles WHERE email = %s",
+            (email,),
+            fetchone=True,
+        )
+        if not row:
+            return jsonify({"error": "Email au password si sahihi"}), 401
+
+        if not bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
+            return jsonify({"error": "Email au password si sahihi"}), 401
+
+        token = make_token(row["id"], row["email"], row["full_name"] or "")
+        return jsonify({
+            "token": token,
+            "user": {
+                "id": str(row["id"]),
+                "email": row["email"],
+                "full_name": row["full_name"] or "",
+            },
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"Hitilafu: {str(e)}"}), 500
+
+
+# =====================================================================
+# STATIC ROUTES
+# =====================================================================
 
 @app.route("/")
 def home():
@@ -377,13 +501,9 @@ def service_worker():
     return send_from_directory(STATIC_DIR, "sw.js", mimetype="application/javascript")
 
 
-@app.route("/api/config", methods=["GET"])
-def get_config():
-    return jsonify({
-        "supabase_url": SUPABASE_URL,
-        "supabase_anon_key": os.environ.get("SUPABASE_ANON_KEY", ""),
-    })
-
+# =====================================================================
+# API ENDPOINTS
+# =====================================================================
 
 @app.route("/api/profile", methods=["GET"])
 def profile():
@@ -398,8 +518,9 @@ def profile():
 
     remaining = prof["messages_limit"] + prof.get("bonus_messages", 0) - prof["messages_used_today"]
     return jsonify({
-        "full_name": prof.get("full_name"),
+        "id": user["id"],
         "email": user.get("email", ""),
+        "full_name": prof.get("full_name"),
         "messages_used_today": prof["messages_used_today"],
         "messages_limit": prof["messages_limit"],
         "bonus_messages": prof.get("bonus_messages", 0),
@@ -414,21 +535,18 @@ def claim_referral_bonus():
     if not user:
         return jsonify({"error": "Login required"}), 401
 
-    prof = get_or_create_profile(user["id"], user.get("user_metadata", {}).get("full_name", ""))
+    prof  = get_or_create_profile(user["id"], user.get("user_metadata", {}).get("full_name", ""))
     bonus = int(get_setting("referral_bonus_messages", "5"))
 
-    new_bonus = prof.get("bonus_messages", 0) + bonus
-    new_referral_count = prof.get("referral_count", 0) + 1
+    new_bonus    = prof.get("bonus_messages", 0) + bonus
+    new_referral = prof.get("referral_count", 0) + 1
 
-    requests.patch(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"id": f"eq.{user['id']}"},
-        json={"bonus_messages": new_bonus, "referral_count": new_referral_count},
-        timeout=10,
+    db_query(
+        "UPDATE profiles SET bonus_messages = %s, referral_count = %s WHERE id = %s",
+        (new_bonus, new_referral, user["id"]),
+        commit=True,
     )
-
-    return jsonify({"bonus_messages": new_bonus, "referral_count": new_referral_count})
+    return jsonify({"bonus_messages": new_bonus, "referral_count": new_referral})
 
 
 @app.route("/api/identify-food", methods=["POST"])
@@ -444,9 +562,8 @@ def identify_food():
     if "image" not in request.files:
         return jsonify({"error": "Hakuna picha iliyotumwa"}), 400
 
-    lang_code = request.form.get("lang", "sw")
-    lang_name = LANG_NAMES.get(lang_code, "Kiswahili")
-
+    lang_code  = request.form.get("lang", "sw")
+    lang_name  = LANG_NAMES.get(lang_code, "Kiswahili")
     image_file = request.files["image"]
 
     try:
@@ -458,11 +575,11 @@ def identify_food():
         img.save(buffer, format="JPEG", quality=85)
         image_bytes = buffer.getvalue()
 
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
-        gemini_client = get_gemini_client()
+        system_prompt  = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
+        gemini_client  = get_gemini_client()
 
         response = gemini_client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-2.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                 system_prompt,
@@ -485,9 +602,6 @@ def identify_food():
             result = json.loads(raw_text, strict=False)
 
         is_valid_food = result.get("is_food", True)
-
-        # Kama picha si chakula, si haki kumtoza mtumiaji "message" - hairuhusiwi
-        # kuhesabiwa kwenye quota wala kuhifadhiwa kwenye history
         if is_valid_food:
             if not is_unlimited:
                 increment_usage(user["id"], prof["messages_used_today"])
@@ -509,20 +623,20 @@ def pro_suggest():
     if error_resp:
         return error_resp
 
-    body = request.get_json() or {}
+    body        = request.get_json() or {}
     ingredients = (body.get("ingredients") or "").strip()
-    lang_code = body.get("lang", "sw")
-    lang_name = LANG_NAMES.get(lang_code, "Kiswahili")
+    lang_code   = body.get("lang", "sw")
+    lang_name   = LANG_NAMES.get(lang_code, "Kiswahili")
 
     if not ingredients:
         return jsonify({"error": "Andika angalau kiungo kimoja"}), 400
 
     try:
-        prompt = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
+        prompt        = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
         gemini_client = get_gemini_client()
 
         response = gemini_client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-2.5-flash",
             contents=[prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -542,8 +656,6 @@ def pro_suggest():
             result = json.loads(raw_text, strict=False)
 
         is_valid_ingredients = result.get("is_valid", True)
-
-        # Kama si viungo halisi, si haki kumtoza mtumiaji "message"
         if is_valid_ingredients and not is_unlimited:
             increment_usage(user["id"], prof["messages_used_today"])
 
@@ -558,13 +670,20 @@ def get_history():
     user = get_authenticated_user(request)
     if not user:
         return jsonify({"error": "Login required"}), 401
-    resp = requests.get(
-        f"{REST_URL}/history",
-        headers=SERVICE_HEADERS,
-        params={"user_id": f"eq.{user['id']}", "select": "*", "order": "created_at.desc", "limit": "50"},
-        timeout=10,
-    )
-    return jsonify(resp.json() if resp.status_code == 200 else [])
+
+    rows = db_query(
+        "SELECT id, user_id, food_name, data, created_at FROM history "
+        "WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+        (user["id"],),
+        fetchall=True,
+    ) or []
+
+    # created_at ni datetime object - ibadilishe kuwa string
+    for r in rows:
+        if r.get("created_at"):
+            r["created_at"] = r["created_at"].isoformat()
+
+    return jsonify(rows)
 
 
 @app.route("/api/favorites", methods=["GET", "POST", "DELETE"])
@@ -574,36 +693,40 @@ def favorites():
         return jsonify({"error": "Login required"}), 401
 
     if request.method == "GET":
-        resp = requests.get(
-            f"{REST_URL}/favorites",
-            headers=SERVICE_HEADERS,
-            params={"user_id": f"eq.{user['id']}", "select": "*", "order": "created_at.desc"},
-            timeout=10,
-        )
-        return jsonify(resp.json() if resp.status_code == 200 else [])
+        rows = db_query(
+            "SELECT id, user_id, food_name, data, created_at FROM favorites "
+            "WHERE user_id = %s ORDER BY created_at DESC",
+            (user["id"],),
+            fetchall=True,
+        ) or []
+        for r in rows:
+            if r.get("created_at"):
+                r["created_at"] = r["created_at"].isoformat()
+        return jsonify(rows)
 
     if request.method == "POST":
-        body = request.get_json()
-        requests.post(
-            f"{REST_URL}/favorites",
-            headers=SERVICE_HEADERS,
-            json={"user_id": user["id"], "food_name": body.get("food_name"), "data": body.get("data")},
-            timeout=10,
+        body = request.get_json() or {}
+        db_query(
+            "INSERT INTO favorites (user_id, food_name, data) VALUES (%s, %s, %s::jsonb) "
+            "ON CONFLICT (user_id, food_name) DO NOTHING",
+            (user["id"], body.get("food_name"), json.dumps(body.get("data"))),
+            commit=True,
         )
         return jsonify({"ok": True})
 
     if request.method == "DELETE":
         food_name = request.args.get("food_name", "")
-        requests.delete(
-            f"{REST_URL}/favorites",
-            headers=SERVICE_HEADERS,
-            params={"user_id": f"eq.{user['id']}", "food_name": f"eq.{food_name}"},
-            timeout=10,
+        db_query(
+            "DELETE FROM favorites WHERE user_id = %s AND food_name = %s",
+            (user["id"], food_name),
+            commit=True,
         )
         return jsonify({"ok": True})
 
 
-# ============ ADMIN ENDPOINTS ============
+# =====================================================================
+# ADMIN ENDPOINTS
+# =====================================================================
 
 @app.route("/api/admin/users", methods=["GET"])
 def admin_list_users():
@@ -611,13 +734,17 @@ def admin_list_users():
     if error_resp:
         return error_resp
 
-    resp = requests.get(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"select": "*", "order": "created_at.desc"},
-        timeout=10,
-    )
-    return jsonify(resp.json() if resp.status_code == 200 else [])
+    rows = db_query(
+        "SELECT id, email, full_name, messages_used_today, messages_limit, "
+        "bonus_messages, referral_count, created_at FROM profiles ORDER BY created_at DESC",
+        fetchall=True,
+    ) or []
+    for r in rows:
+        if r.get("created_at"):
+            r["created_at"] = r["created_at"].isoformat()
+        # Usirudishe password_hash
+        r.pop("password_hash", None)
+    return jsonify(rows)
 
 
 @app.route("/api/admin/users/<user_id>", methods=["DELETE"])
@@ -626,13 +753,7 @@ def admin_delete_user(user_id):
     if error_resp:
         return error_resp
 
-    resp = requests.delete(
-        f"{AUTH_URL}/admin/users/{user_id}",
-        headers=SERVICE_HEADERS,
-        timeout=10,
-    )
-    if resp.status_code not in (200, 204):
-        return jsonify({"error": "Imeshindwa kufuta mtumiaji"}), 500
+    db_query("DELETE FROM profiles WHERE id = %s", (user_id,), commit=True)
     return jsonify({"ok": True})
 
 
@@ -642,17 +763,15 @@ def admin_update_user_limit(user_id):
     if error_resp:
         return error_resp
 
-    body = request.get_json() or {}
+    body      = request.get_json() or {}
     new_limit = body.get("messages_limit")
     if new_limit is None:
         return jsonify({"error": "messages_limit inahitajika"}), 400
 
-    requests.patch(
-        f"{REST_URL}/profiles",
-        headers=SERVICE_HEADERS,
-        params={"id": f"eq.{user_id}"},
-        json={"messages_limit": int(new_limit)},
-        timeout=10,
+    db_query(
+        "UPDATE profiles SET messages_limit = %s WHERE id = %s",
+        (int(new_limit), user_id),
+        commit=True,
     )
     return jsonify({"ok": True})
 
@@ -663,13 +782,7 @@ def admin_get_settings():
     if error_resp:
         return error_resp
 
-    resp = requests.get(
-        f"{REST_URL}/app_settings",
-        headers=SERVICE_HEADERS,
-        params={"select": "*"},
-        timeout=10,
-    )
-    rows = resp.json() if resp.status_code == 200 else []
+    rows     = db_query("SELECT key, value FROM app_settings", fetchall=True) or []
     settings = {r["key"]: r["value"] for r in rows}
 
     key = settings.get("gemini_api_key", "")
@@ -690,20 +803,16 @@ def admin_update_settings():
 
     body = request.get_json() or {}
 
-    if "gemini_api_key" in body and body["gemini_api_key"]:
+    if body.get("gemini_api_key"):
         set_setting("gemini_api_key", body["gemini_api_key"])
 
     if "default_message_limit" in body:
         set_setting("default_message_limit", str(body["default_message_limit"]))
-
         if body.get("apply_to_all"):
-            # Sasisha messages_limit ya WATUMIAJI WOTE waliopo tayari (si wapya tu)
-            requests.patch(
-                f"{REST_URL}/profiles",
-                headers=SERVICE_HEADERS,
-                params={"id": "not.is.null"},
-                json={"messages_limit": int(body["default_message_limit"])},
-                timeout=15,
+            db_query(
+                "UPDATE profiles SET messages_limit = %s",
+                (int(body["default_message_limit"]),),
+                commit=True,
             )
 
     if "referral_bonus_messages" in body:
