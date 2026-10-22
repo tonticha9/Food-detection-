@@ -1,4 +1,6 @@
 flask
 google-genai
 Pillow
-requests
+psycopg2-binary
+PyJWT
+bcrypt
