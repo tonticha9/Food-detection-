@@ -30,6 +30,14 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or ""
 
 LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
 
+# Models kwa mpangilio wa kujaribu — ukishindwa inajaribu inayofuata
+GEMINI_MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+]
+
 # =====================================================================
 # PROMPTS & SCHEMAS
 # =====================================================================
@@ -220,6 +228,28 @@ PRO_RESPONSE_SCHEMA = {
 
 
 # =====================================================================
+# GEMINI FALLBACK
+# =====================================================================
+
+def generate_with_fallback(client, contents, config):
+    """Jaribu models moja baada ya nyingine mpaka moja ifanikiwe."""
+    last_error = None
+    for model in GEMINI_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            return response, model
+        except Exception as e:
+            last_error = e
+            # Endelea na model inayofuata
+            continue
+    raise Exception(f"Models zote zimeshindwa. Hitilafu ya mwisho: {str(last_error)}")
+
+
+# =====================================================================
 # DATABASE HELPERS
 # =====================================================================
 
@@ -293,15 +323,12 @@ def make_token(user_id, email, full_name):
 
 
 def ensure_admin(user_id, email, password):
-    """Kama email na password zinafanana na ADMIN_EMAIL/ADMIN_PASSWORD
-       kwenye ENV, mtumiaji huyu anafanywa admin automatically."""
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         return
     if email.strip().lower() != ADMIN_EMAIL:
         return
     if password != ADMIN_PASSWORD:
         return
-    # Ongeza kwenye admins kama bado hayupo
     db_query(
         "INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
         (user_id,),
@@ -452,7 +479,6 @@ def auth_register():
             commit=True,
         )
 
-        # Kama ni admin email+password → fanya admin automatically
         ensure_admin(user_id, email, password)
 
         token = make_token(user_id, email, full_name)
@@ -486,7 +512,6 @@ def auth_login():
         if not bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
             return jsonify({"error": "Email au password si sahihi"}), 401
 
-        # Kama ni admin email+password → hakikisha yuko kwenye admins
         ensure_admin(str(row["id"]), row["email"], password)
 
         token = make_token(row["id"], row["email"], row["full_name"] or "")
@@ -598,18 +623,17 @@ def identify_food():
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
         gemini_client = get_gemini_client()
 
-        response = response = gemini_client.models.generate_content(
-    model="gemini-2.0-flash",   # ← badilisha hapa
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                system_prompt,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=RESPONSE_SCHEMA,
-                temperature=0.3,
-                max_output_tokens=16000,
-            ),
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=RESPONSE_SCHEMA,
+            temperature=0.3,
+            max_output_tokens=16000,
+        )
+
+        response, used_model = generate_with_fallback(
+            gemini_client,
+            [types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"), system_prompt],
+            config,
         )
 
         raw_text = response.text
@@ -655,15 +679,17 @@ def pro_suggest():
         prompt        = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
         gemini_client = get_gemini_client()
 
-        response = response = gemini_client.models.generate_content(
-    model="gemini-2.0-flash",   # ← badilisha hapa
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=PRO_RESPONSE_SCHEMA,
-                temperature=0.4,
-                max_output_tokens=10000,
-            ),
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=PRO_RESPONSE_SCHEMA,
+            temperature=0.4,
+            max_output_tokens=10000,
+        )
+
+        response, used_model = generate_with_fallback(
+            gemini_client,
+            [prompt],
+            config,
         )
 
         raw_text = response.text
@@ -845,4 +871,4 @@ def admin_clear_gemini_key():
 
 
 if __name__ == "__main__":
-    app.run(debug=True) 
+    app.run(debug=True)
