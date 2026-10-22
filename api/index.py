@@ -13,9 +13,9 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+STATIC_DIR   = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
@@ -25,10 +25,13 @@ JWT_SECRET      = os.environ.get("JWT_SECRET", "tambua-chakula-default-secret")
 JWT_ALGORITHM   = "HS256"
 JWT_EXPIRY_DAYS = 7
 
+ADMIN_EMAIL    = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or ""
+
 LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
 
 # =====================================================================
-# PROMPTS & SCHEMAS (hazikubadilishwa)
+# PROMPTS & SCHEMAS
 # =====================================================================
 
 SYSTEM_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi na lishe mwenye ujuzi wa
@@ -221,13 +224,11 @@ PRO_RESPONSE_SCHEMA = {
 # =====================================================================
 
 def get_db():
-    """Fungua connection mpya ya PostgreSQL."""
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
 def db_query(sql, params=(), fetchone=False, fetchall=False, commit=False):
-    """Helper ndogo: fanya query moja na funga connection."""
     conn = get_db()
     try:
         cur = conn.cursor()
@@ -253,7 +254,6 @@ def db_query(sql, params=(), fetchone=False, fetchall=False, commit=False):
 # =====================================================================
 
 def get_authenticated_user(req):
-    """Soma JWT token kutoka header, rudisha user dict au None."""
     auth_header = req.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
@@ -292,14 +292,29 @@ def make_token(user_id, email, full_name):
     )
 
 
+def ensure_admin(user_id, email, password):
+    """Kama email na password zinafanana na ADMIN_EMAIL/ADMIN_PASSWORD
+       kwenye ENV, mtumiaji huyu anafanywa admin automatically."""
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        return
+    if email.strip().lower() != ADMIN_EMAIL:
+        return
+    if password != ADMIN_PASSWORD:
+        return
+    # Ongeza kwenye admins kama bado hayupo
+    db_query(
+        "INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+        (user_id,),
+        commit=True,
+    )
+
+
 # =====================================================================
 # SETTINGS HELPERS
 # =====================================================================
 
 def get_setting(key, default=""):
-    row = db_query(
-        "SELECT value FROM app_settings WHERE key = %s", (key,), fetchone=True
-    )
+    row = db_query("SELECT value FROM app_settings WHERE key = %s", (key,), fetchone=True)
     return row["value"] if row else default
 
 
@@ -352,7 +367,7 @@ def get_or_create_profile(user_id, full_name=""):
 
 def reset_quota_if_new_day(profile):
     today = datetime.date.today()
-    last = profile.get("last_reset_date")
+    last  = profile.get("last_reset_date")
     if last:
         if isinstance(last, str):
             last = datetime.date.fromisoformat(last)
@@ -363,7 +378,7 @@ def reset_quota_if_new_day(profile):
                 commit=True,
             )
             profile["messages_used_today"] = 0
-            profile["last_reset_date"] = str(today)
+            profile["last_reset_date"]     = str(today)
     return profile
 
 
@@ -385,29 +400,29 @@ def save_history(user_id, food_name, data):
 
 def check_and_consume_quota(user):
     full_name = user.get("user_metadata", {}).get("full_name", "")
-    prof = get_or_create_profile(user["id"], full_name)
-    prof = reset_quota_if_new_day(prof)
+    prof      = get_or_create_profile(user["id"], full_name)
+    prof      = reset_quota_if_new_day(prof)
 
     if is_admin(user["id"]):
-        return prof, None, True  # is_unlimited = True
+        return prof, None, True
 
     total_allowed = prof["messages_limit"] + prof.get("bonus_messages", 0)
     if prof["messages_used_today"] >= total_allowed:
         return prof, (jsonify({
-            "error": "quota_exceeded",
-            "message": "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
+            "error":     "quota_exceeded",
+            "message":   "Umefikia kikomo cha leo. Share link na marafiki 2+ kupata messages za ziada!",
             "share_url": "https://world-food-scanner.vercel.app",
         }), 429), False
     return prof, None, False
 
 
 # =====================================================================
-# AUTH ENDPOINTS (mpya - badala ya Supabase Auth)
+# AUTH ENDPOINTS
 # =====================================================================
 
 @app.route("/api/auth/register", methods=["POST"])
 def auth_register():
-    body = request.get_json() or {}
+    body      = request.get_json() or {}
     email     = (body.get("email") or "").strip().lower()
     password  = body.get("password") or ""
     full_name = (body.get("full_name") or "").strip()
@@ -437,10 +452,13 @@ def auth_register():
             commit=True,
         )
 
+        # Kama ni admin email+password → fanya admin automatically
+        ensure_admin(user_id, email, password)
+
         token = make_token(user_id, email, full_name)
         return jsonify({
             "token": token,
-            "user": {"id": user_id, "email": email, "full_name": full_name},
+            "user":  {"id": user_id, "email": email, "full_name": full_name},
         }), 201
 
     except Exception as e:
@@ -468,12 +486,15 @@ def auth_login():
         if not bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
             return jsonify({"error": "Email au password si sahihi"}), 401
 
+        # Kama ni admin email+password → hakikisha yuko kwenye admins
+        ensure_admin(str(row["id"]), row["email"], password)
+
         token = make_token(row["id"], row["email"], row["full_name"] or "")
         return jsonify({
             "token": token,
-            "user": {
-                "id": str(row["id"]),
-                "email": row["email"],
+            "user":  {
+                "id":        str(row["id"]),
+                "email":     row["email"],
                 "full_name": row["full_name"] or "",
             },
         })
@@ -511,21 +532,21 @@ def profile():
     if not user:
         return jsonify({"error": "Haujaingia (login required)"}), 401
 
-    full_name = user.get("user_metadata", {}).get("full_name", "")
-    prof = get_or_create_profile(user["id"], full_name)
-    prof = reset_quota_if_new_day(prof)
+    full_name  = user.get("user_metadata", {}).get("full_name", "")
+    prof       = get_or_create_profile(user["id"], full_name)
+    prof       = reset_quota_if_new_day(prof)
     admin_flag = is_admin(user["id"])
 
     remaining = prof["messages_limit"] + prof.get("bonus_messages", 0) - prof["messages_used_today"]
     return jsonify({
-        "id": user["id"],
-        "email": user.get("email", ""),
-        "full_name": prof.get("full_name"),
+        "id":                  user["id"],
+        "email":               user.get("email", ""),
+        "full_name":           prof.get("full_name"),
         "messages_used_today": prof["messages_used_today"],
-        "messages_limit": prof["messages_limit"],
-        "bonus_messages": prof.get("bonus_messages", 0),
-        "remaining": max(0, remaining),
-        "is_admin": admin_flag,
+        "messages_limit":      prof["messages_limit"],
+        "bonus_messages":      prof.get("bonus_messages", 0),
+        "remaining":           max(0, remaining),
+        "is_admin":            admin_flag,
     })
 
 
@@ -535,9 +556,8 @@ def claim_referral_bonus():
     if not user:
         return jsonify({"error": "Login required"}), 401
 
-    prof  = get_or_create_profile(user["id"], user.get("user_metadata", {}).get("full_name", ""))
-    bonus = int(get_setting("referral_bonus_messages", "5"))
-
+    prof         = get_or_create_profile(user["id"], user.get("user_metadata", {}).get("full_name", ""))
+    bonus        = int(get_setting("referral_bonus_messages", "5"))
     new_bonus    = prof.get("bonus_messages", 0) + bonus
     new_referral = prof.get("referral_count", 0) + 1
 
@@ -575,8 +595,8 @@ def identify_food():
         img.save(buffer, format="JPEG", quality=85)
         image_bytes = buffer.getvalue()
 
-        system_prompt  = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
-        gemini_client  = get_gemini_client()
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
+        gemini_client = get_gemini_client()
 
         response = gemini_client.models.generate_content(
             model="gemini-2.5-flash",
@@ -677,12 +697,9 @@ def get_history():
         (user["id"],),
         fetchall=True,
     ) or []
-
-    # created_at ni datetime object - ibadilishe kuwa string
     for r in rows:
         if r.get("created_at"):
             r["created_at"] = r["created_at"].isoformat()
-
     return jsonify(rows)
 
 
@@ -742,8 +759,6 @@ def admin_list_users():
     for r in rows:
         if r.get("created_at"):
             r["created_at"] = r["created_at"].isoformat()
-        # Usirudishe password_hash
-        r.pop("password_hash", None)
     return jsonify(rows)
 
 
@@ -752,7 +767,6 @@ def admin_delete_user(user_id):
     _, error_resp = require_admin(request)
     if error_resp:
         return error_resp
-
     db_query("DELETE FROM profiles WHERE id = %s", (user_id,), commit=True)
     return jsonify({"ok": True})
 
@@ -831,4 +845,4 @@ def admin_clear_gemini_key():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True) 
