@@ -598,8 +598,8 @@ def identify_food():
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
         gemini_client = get_gemini_client()
 
-        response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+        response = response = gemini_client.models.generate_content(
+    model="gemini-2.0-flash",   # ← badilisha hapa
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                 system_prompt,
@@ -655,8 +655,8 @@ def pro_suggest():
         prompt        = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
         gemini_client = get_gemini_client()
 
-        response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+        response = response = gemini_client.models.generate_content(
+    model="gemini-2.0-flash",   # ← badilisha hapa
             contents=[prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
