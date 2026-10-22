@@ -12,7 +12,9 @@ import bcrypt
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from google import genai
 from google.genai import types
-from PIL import Image
+from PIL import Image, ImageOps
+
+Image.MAX_IMAGE_PIXELS = None  # usikatae picha kubwa
 
 BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
@@ -616,11 +618,15 @@ def identify_food():
 
     try:
         img = Image.open(image_file.stream)
-        img = img.convert("RGB")
-        img.thumbnail((1024, 1024))
+        try:
+            img.draft("RGB", (1536, 1536))  # decode JPEG haraka kwa saizi ndogo
+        except Exception:
+            pass
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        img.thumbnail((768, 768))
 
         buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
+        img.save(buffer, format="JPEG", quality=80)
         image_bytes = buffer.getvalue()
 
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name)
@@ -630,7 +636,8 @@ def identify_food():
             response_mime_type="application/json",
             response_schema=RESPONSE_SCHEMA,
             temperature=0.3,
-            max_output_tokens=16000,
+            max_output_tokens=8000,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
 
         response, used_model = generate_with_fallback(
@@ -686,7 +693,8 @@ def pro_suggest():
             response_mime_type="application/json",
             response_schema=PRO_RESPONSE_SCHEMA,
             temperature=0.4,
-            max_output_tokens=10000,
+            max_output_tokens=8000,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
 
         response, used_model = generate_with_fallback(
