@@ -3,6 +3,7 @@ import json
 import io
 import datetime
 import uuid
+import time
 
 import psycopg2
 import psycopg2.extras
@@ -32,10 +33,7 @@ LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
 
 # Models kwa mpangilio wa kujaribu — ukishindwa inajaribu inayofuata
 GEMINI_MODELS = [
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-1.5-pro",
+    "gemini-flash-lite-latest",
 ]
 
 # =====================================================================
@@ -235,17 +233,22 @@ def generate_with_fallback(client, contents, config):
     """Jaribu models moja baada ya nyingine mpaka moja ifanikiwe."""
     last_error = None
     for model in GEMINI_MODELS:
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
-            return response, model
-        except Exception as e:
-            last_error = e
-            # Endelea na model inayofuata
-            continue
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
+                return response, model
+            except Exception as e:
+                last_error = e
+                msg = str(e)
+                # 503/429 ni za muda mfupi - jaribu tena baada ya kusubiri
+                if ("503" in msg or "429" in msg or "UNAVAILABLE" in msg) and attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                break
     raise Exception(f"Models zote zimeshindwa. Hitilafu ya mwisho: {str(last_error)}")
 
 
