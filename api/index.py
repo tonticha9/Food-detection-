@@ -33,7 +33,7 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or ""
 
 LANG_NAMES = {"sw": "Kiswahili", "en": "English", "fr": "Français"}
 
-# Models kwa mpangilio wa kujaribu — ukishindwa inajaribu inayofuata
+# Models kwa mpangilio wa kujaribu
 GEMINI_MODELS = [
     "gemini-flash-lite-latest",
 ]
@@ -42,9 +42,9 @@ GEMINI_MODELS = [
 # PROMPTS & SCHEMAS
 # =====================================================================
 
-SYSTEM_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi na lishe mwenye ujuzi wa
+SYSTEM_PROMPT_TEMPLATE = """Wewe ni mpishi bingwa na mtaalamu wa lishe mwenye ujuzi wa
 vyakula vyote duniani, unayefundisha wapishi WAPYA KABISA (wasiojua kupika hata
-kidogo) kwa uvumilivu na uwazi mkubwa.
+kidogo) kwa uvumilivu, uwazi mkubwa na maelezo marefu.
 
 Andika JIBU LOTE kwa lugha ya {lang_name} pekee (majina ya vyakula yanaweza
 kubaki kwa lugha asilia kama hayana tafsiri nzuri).
@@ -67,38 +67,39 @@ cooking_time="".
 
 Kama is_food ni true, endelea na hatua zifuatazo:
 
-Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI,
-makadirio ya lishe, kisha toa NJIA MBILI za kupika: "jiko_kawaida" (mkaa/gesi/
-sufuria ya kawaida) na "njia_ya_kisasa" (oveni/blender/air fryer, au null kama
-havihitajiki).
+Tambua jina lake, toa ingredients kwa VIPIMO SAHIHI, makadirio ya lishe, kisha
+toa NJIA MBILI za kupika: "jiko_kawaida" (mkaa/gesi/sufuria ya kawaida) na
+"njia_ya_kisasa" (oveni/blender/air fryer, au null kama havihitajiki).
 
 MUHIMU SANA KUHUSU HATUA (steps) - HII NDIYO SEHEMU MUHIMU ZAIDI:
-Kila hatua LAZIMA iwe maelezo YA KINA na YENYE UWAZI KAMILI, kama ungekuwa
-unamfundisha mtu ambaye hajawahi kuingia jikoni kabisa. USIWE MFUPI. Eleza:
+Kila hatua LAZIMA iwe maelezo MAREFU, YA KINA na YENYE UWAZI KAMILI, kama
+ungekuwa unamfundisha mtu ambaye hajawahi kuingia jikoni kabisa. USIWE MFUPI.
+Kila hatua iwe na sentensi 2 hadi 4. Eleza:
 - Ni nini cha kufanya hasa (kitendo)
-- Kwa vitu gani (viungo, vyombo)
+- Kwa vitu gani (viungo, vyombo, ukubwa wa sufuria)
 - Jinsi gani (mfano: "katakata vipande vidogo vidogo", si "katakata" tu)
 - Kwa muda gani au mpaka hali gani ionekane (mfano: "hadi vitunguu viwe
   vya rangi ya dhahabu", si "kaanga" tu)
+- Dalili za kujua kama hatua imefanikiwa na kosa la kuepuka
 
 Mfano wa ubora unaotakiwa:
 "Andaa sufuria safi yenye ukubwa wa kutosha kulingana na idadi ya watu
-watakaokula chakula hiki."
-"Menya na osha vitunguu na nyanya, kisha kata vitunguu vipande vidogo vidogo
-na nyanya vipande vya wastani, weka kila kimoja kwenye bakuli tofauti."
+watakaokula chakula hiki. Hakikisha ni kavu ndani, kwa sababu maji yakiwepo
+mafuta yatarukaruka na kukuunguza."
 "Weka sufuria jikoni kwenye moto wa wastani, mimina mafuta kiasi cha
 kutosha, subiri sekunde 30 mpaka mafuta yapate joto kabla ya kuweka
-vitunguu."
+vitunguu. Ukiweka kitunguu kikaanza kutoa sauti ndogo, mafuta yako tayari."
 
 Hatua hizo zinaweza kuwa ndefu - HILO NI SAWA na LINATAKIWA. Lengo ni user
 AELEWE KIKAMILIFU bila kuhitaji kuuliza swali lolote la ziada.
 
 MWONGOZO MWINGINE:
 - Kila kiungo lazima kiwe na kipimo
-- Ingredients: vitu 6 hadi 10
-- Steps kwa kila njia: hatua 6 hadi 10, kila moja ikiwa na maelezo kamili
-  kama mfano hapo juu
-- Tips: nasaha 2-3 zenye maelezo, si sentensi fupi tu
+- Ingredients: vitu 8 hadi 14
+- Description ya kila njia: sentensi 2 hadi 3
+- Steps kwa kila njia: hatua 8 hadi 12, kila moja ikiwa na maelezo marefu
+- Nutrition_note: sentensi 2 zenye maelezo
+- Tips: nasaha 3 hadi 4 zenye maelezo kamili, si sentensi fupi tu
 
 Jibu JSON pekee, muundo huu:
 {{
@@ -115,30 +116,46 @@ Jibu JSON pekee, muundo huu:
   "tips": ""
 }}"""
 
-PRO_PROMPT_TEMPLATE = """Wewe ni mtaalamu wa upishi anayefundisha watu wapya
-kabisa jikoni. Mtumiaji ameandika hivi kama viungo alivyonavyo nyumbani:
-"{ingredients}".
+PRO_PROMPT_TEMPLATE = """Wewe ni mpishi bingwa na mwalimu wa upishi unayefundisha watu
+wapya kabisa jikoni, kwa lugha rahisi na maelezo marefu yenye uwazi.
 
-HATUA YA KWANZA YA LAZIMA - THIBITISHA KAMA NI VIUNGO HALISI VYA CHAKULA:
-Angalia maandishi haya kwa uangalifu. Weka "is_valid": true TU KAMA maandishi
-haya yanaeleza viungo halisi vya chakula (mfano: unga, mafuta, nyanya, kuku,
-sukari, n.k), hata kama vimeandikwa kwa lugha isiyo rasmi au yenye makosa
-kidogo ya spelling. Weka "is_valid": false kama maandishi ni kitu kisicho
-viungo vya chakula kabisa - mfano: majina ya watu, maneno yasiyo na maana,
-vitu vya nyumbani visivyoliwa, au maandishi ya ovyo/random. USIBUNI vyakula
-kama hujaona viungo halisi vya chakula - hii ni MUHIMU SANA.
+Mtumiaji ameandika hivi: "{ingredients}"
+{mode_hint}
 
-Kama is_valid ni false: weka suggestions kama [] (array tupu), na weka
-"message" (kwa lugha ya {lang_name}) ukimwambia mtumiaji aandike viungo halisi
-vya chakula alivyonavyo nyumbani.
+Maandishi hayo yanaweza kuwa: (a) viungo alivyonavyo nyumbani, (b) chakula
+anachotaka kupika (jina au maelezo yake), au (c) vyote viwili.
 
-Kama is_valid ni true: weka message kama "", kisha toa mapendekezo ya vyakula
-3 hadi 5 anavyoweza kupika kwa kutumia viungo hivyo (au pamoja na vitu vya
-kawaida vinavyopatikana kila nyumbani kama chumvi/maji/mafuta). Kwa KILA
-pendekezo, toa hatua ZENYE MAELEZO YA KINA na UWAZI KAMILI - kama ungekuwa
-unamfundisha mtu asiyejua kupika kabisa. Eleza kitendo, vifaa, jinsi gani, na
-kwa muda/hali gani (mfano: "kaanga hadi kiwe cha rangi ya dhahabu", si
-"kaanga" tu). Hatua zinaweza kuwa ndefu - hilo ni sawa, lengo ni UELEWA KAMILI.
+HATUA YA KWANZA YA LAZIMA - THIBITISHA:
+Weka "is_valid": true TU KAMA maandishi yanahusu chakula au upishi (viungo
+halisi vya chakula, jina la chakula/kinywaji, au maelezo ya chakula anachotaka
+kupika), hata kama yameandikwa kwa lugha isiyo rasmi au yenye makosa kidogo ya
+spelling. Weka "is_valid": false kama ni kitu kisichohusiana na chakula kabisa
+- mfano: majina ya watu, maneno yasiyo na maana, vitu visivyoliwa, au maandishi
+ya ovyo. USIBUNI vyakula kama hujaona chakula wala viungo halisi.
+
+Kama is_valid ni false: weka suggestions kama [] na weka "message" (kwa lugha
+ya {lang_name}) ukimwambia mtumiaji aandike viungo vyake au chakula
+anachotaka kupika.
+
+Kama is_valid ni true: weka message kama "", kisha:
+- Kama ameandika VIUNGO tu: toa mapendekezo ya vyakula 3 hadi 5 anavyoweza
+  kupika kwa viungo hivyo (pamoja na vitu vya kawaida kama chumvi/maji/mafuta).
+- Kama ameandika CHAKULA anachotaka kupika: pendekezo la KWANZA LAZIMA liwe
+  chakula hicho hasa alichoomba (mapishi kamili), kisha toa mapendekezo 1 hadi 2
+  ya aina nyingine zinazofanana au mbadala wake.
+- Kama ameandika vyote viwili: tumia viungo vyake kupika chakula alichotaka,
+  kisha ongeza mapendekezo 1 hadi 2 mbadala.
+
+Kwa KILA pendekezo toa:
+- food_name: jina la chakula
+- short_description: sentensi 2 hadi 3 zinazoeleza chakula hiki kikoje
+- ingredients_list: viungo vyote kwa VIPIMO (kiasi cha watu 4)
+- extra_needed: viungo vya ziada ambavyo mtumiaji huenda hana (au [] kama hakuna)
+- steps: hatua 7 hadi 12, kila hatua ikiwa MAREFU na YA KINA (sentensi 2 hadi 4):
+  eleza kitendo, vifaa, jinsi gani, na kwa muda/hali gani (mfano: "kaanga hadi
+  kiwe cha rangi ya dhahabu", si "kaanga" tu). Lengo ni UELEWA KAMILI.
+- cooking_time: muda wa jumla wa kupika
+- tips: nasaha 2 hadi 3 zenye maelezo
 
 Andika JIBU LOTE kwa lugha ya {lang_name}.
 
@@ -149,12 +166,30 @@ Jibu JSON pekee, muundo huu:
   "suggestions": [
     {{
       "food_name": "jina la chakula",
-      "short_description": "sentensi 1-2 kuhusu chakula hiki",
+      "short_description": "sentensi 2-3 kuhusu chakula hiki",
+      "ingredients_list": ["kipimo + kiungo"],
       "extra_needed": ["kiungo cha ziada 1"],
-      "steps": ["hatua yenye maelezo kamili 1", "hatua yenye maelezo kamili 2"]
+      "steps": ["hatua yenye maelezo marefu 1", "hatua yenye maelezo marefu 2"],
+      "cooking_time": "muda",
+      "tips": "nasaha"
     }}
   ]
 }}"""
+
+CHAT_SYSTEM_PROMPT = """Wewe ni "Tambua Chakula AI", msaidizi mwerevu, mkarimu na mwenye
+ujuzi wa mambo mengi. Unajibu maswali YOTE ya mtumiaji (upishi, lishe, afya ya
+kawaida, elimu, teknolojia, biashara, maisha, lugha, hesabu, ushauri, na mengineyo)
+kama msaidizi wa kawaida wa AI.
+
+Mwongozo:
+- Andika JIBU LOTE kwa lugha ya {lang_name}, isipokuwa mtumiaji akiomba lugha nyingine.
+- Toa majibu KAMILI na yenye maelezo ya kutosha, kwa maandishi ya kueleweka.
+  Tumia vichwa vifupi, orodha na **herufi nzito** pale inaposaidia.
+- Kwa mapishi: toa viungo kwa vipimo na hatua za kina zenye maelezo.
+- Kama huna uhakika wa jambo, sema wazi badala ya kubuni.
+- Kwa maswali ya afya, sheria au fedha, toa maelezo ya jumla na shauri
+  kuonana na mtaalamu pale panapohitajika.
+- Kataa kwa upole maombi ya kudhuru watu au shughuli haramu."""
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -216,10 +251,16 @@ PRO_RESPONSE_SCHEMA = {
                 "properties": {
                     "food_name": {"type": "string"},
                     "short_description": {"type": "string"},
+                    "ingredients_list": {"type": "array", "items": {"type": "string"}},
                     "extra_needed": {"type": "array", "items": {"type": "string"}},
                     "steps": {"type": "array", "items": {"type": "string"}},
+                    "cooking_time": {"type": "string"},
+                    "tips": {"type": "string"},
                 },
-                "required": ["food_name", "short_description", "extra_needed", "steps"],
+                "required": [
+                    "food_name", "short_description", "ingredients_list",
+                    "extra_needed", "steps", "cooking_time", "tips",
+                ],
             },
         }
     },
@@ -232,7 +273,7 @@ PRO_RESPONSE_SCHEMA = {
 # =====================================================================
 
 def generate_with_fallback(client, contents, config):
-    """Jaribu models moja baada ya nyingine mpaka moja ifanikiwe."""
+    """Jaribu models moja baada ya nyingine; 503/429 zinajaribiwa tena."""
     last_error = None
     for model in GEMINI_MODELS:
         for attempt in range(3):
@@ -246,7 +287,6 @@ def generate_with_fallback(client, contents, config):
             except Exception as e:
                 last_error = e
                 msg = str(e)
-                # 503/429 ni za muda mfupi - jaribu tena baada ya kusubiri
                 if ("503" in msg or "429" in msg or "UNAVAILABLE" in msg) and attempt < 2:
                     time.sleep(2 * (attempt + 1))
                     continue
@@ -365,6 +405,10 @@ def get_gemini_client():
     return genai.Client(api_key=active_key)
 
 
+def chat_is_public():
+    return get_setting("chat_public", "0") == "1"
+
+
 # =====================================================================
 # PROFILE / QUOTA HELPERS
 # =====================================================================
@@ -414,10 +458,11 @@ def reset_quota_if_new_day(profile):
     return profile
 
 
-def increment_usage(user_id, current_used):
+def increment_usage(user_id, current_used=None):
+    # Atomic: haipotezi hesabu ikiwa maombi mawili yanakuja pamoja
     db_query(
-        "UPDATE profiles SET messages_used_today = %s WHERE id = %s",
-        (current_used + 1, user_id),
+        "UPDATE profiles SET messages_used_today = messages_used_today + 1 WHERE id = %s",
+        (user_id,),
         commit=True,
     )
 
@@ -566,6 +611,7 @@ def profile():
     prof       = get_or_create_profile(user["id"], full_name)
     prof       = reset_quota_if_new_day(prof)
     admin_flag = is_admin(user["id"])
+    public     = chat_is_public()
 
     remaining = prof["messages_limit"] + prof.get("bonus_messages", 0) - prof["messages_used_today"]
     return jsonify({
@@ -577,6 +623,8 @@ def profile():
         "bonus_messages":      prof.get("bonus_messages", 0),
         "remaining":           max(0, remaining),
         "is_admin":            admin_flag,
+        "chat_public":         public,
+        "chat_enabled":        bool(admin_flag or public),
     })
 
 
@@ -610,7 +658,7 @@ def identify_food():
         return error_resp
 
     if "image" not in request.files:
-        return jsonify({"error": "Hakuna picha iliyotumwa"}), 400
+        return jsonify({"error": "Picha haijatumwa"}), 400
 
     lang_code  = request.form.get("lang", "sw")
     lang_name  = LANG_NAMES.get(lang_code, "Kiswahili")
@@ -636,7 +684,7 @@ def identify_food():
             response_mime_type="application/json",
             response_schema=RESPONSE_SCHEMA,
             temperature=0.3,
-            max_output_tokens=8000,
+            max_output_tokens=10000,
             thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
 
@@ -658,7 +706,7 @@ def identify_food():
         is_valid_food = result.get("is_food", True)
         if is_valid_food:
             if not is_unlimited:
-                increment_usage(user["id"], prof["messages_used_today"])
+                increment_usage(user["id"])
             save_history(user["id"], result.get("food_name", ""), result)
 
         return jsonify(result), 200
@@ -678,22 +726,33 @@ def pro_suggest():
         return error_resp
 
     body        = request.get_json() or {}
-    ingredients = (body.get("ingredients") or "").strip()
+    ingredients = (body.get("ingredients") or "").strip()[:1500]
+    mode        = body.get("mode") or "ingredients"
     lang_code   = body.get("lang", "sw")
     lang_name   = LANG_NAMES.get(lang_code, "Kiswahili")
 
     if not ingredients:
-        return jsonify({"error": "Andika angalau kiungo kimoja"}), 400
+        return jsonify({"error": "Andika viungo au chakula unachotaka kupika"}), 400
+
+    mode_hints = {
+        "ingredients": "(Mtumiaji amechagua hali ya: NINA VIUNGO - maandishi yake ni viungo alivyonavyo.)",
+        "dish":        "(Mtumiaji amechagua hali ya: NATAKA KUPIKA CHAKULA - maandishi yake ni chakula/maelezo ya chakula anachotaka.)",
+    }
+    mode_hint = mode_hints.get(mode, "")
 
     try:
-        prompt        = PRO_PROMPT_TEMPLATE.format(ingredients=ingredients, lang_name=lang_name)
+        prompt        = PRO_PROMPT_TEMPLATE.format(
+            ingredients=ingredients.replace('"', "'"),
+            lang_name=lang_name,
+            mode_hint=mode_hint,
+        )
         gemini_client = get_gemini_client()
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=PRO_RESPONSE_SCHEMA,
             temperature=0.4,
-            max_output_tokens=8000,
+            max_output_tokens=12000,
             thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
 
@@ -714,9 +773,68 @@ def pro_suggest():
 
         is_valid_ingredients = result.get("is_valid", True)
         if is_valid_ingredients and not is_unlimited:
-            increment_usage(user["id"], prof["messages_used_today"])
+            increment_usage(user["id"])
 
         return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    user = get_authenticated_user(request)
+    if not user:
+        return jsonify({"error": "Tafadhali ingia (login) kwanza"}), 401
+
+    admin_flag = is_admin(user["id"])
+    if not admin_flag and not chat_is_public():
+        return jsonify({"error": "AI Chat haijafunguliwa kwa watumiaji kwa sasa"}), 403
+
+    is_unlimited = admin_flag
+    if not admin_flag:
+        _, error_resp, is_unlimited = check_and_consume_quota(user)
+        if error_resp:
+            return error_resp
+
+    body      = request.get_json() or {}
+    messages  = body.get("messages") or []
+    lang_code = body.get("lang", "sw")
+    lang_name = LANG_NAMES.get(lang_code, "Kiswahili")
+
+    contents = []
+    for m in messages[-20:]:
+        text = str(m.get("text") or "").strip()[:4000]
+        if not text:
+            continue
+        role = "model" if m.get("role") == "model" else "user"
+        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
+
+    while contents and contents[0].role == "model":
+        contents.pop(0)
+
+    if not contents or contents[-1].role != "user":
+        return jsonify({"error": "Andika ujumbe kwanza"}), 400
+
+    try:
+        gemini_client = get_gemini_client()
+        config = types.GenerateContentConfig(
+            system_instruction=CHAT_SYSTEM_PROMPT.replace("{lang_name}", lang_name),
+            temperature=0.7,
+            max_output_tokens=4096,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        )
+
+        response, used_model = generate_with_fallback(gemini_client, contents, config)
+
+        reply = (response.text or "").strip()
+        if not reply:
+            return jsonify({"error": "AI haikurudisha jibu. Jaribu tena."}), 500
+
+        if not is_unlimited:
+            increment_usage(user["id"])
+
+        return jsonify({"reply": reply}), 200
 
     except Exception as e:
         return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
@@ -843,6 +961,8 @@ def admin_get_settings():
         settings["gemini_api_key_masked"] = "(inatumia Environment Variable)"
     settings.pop("gemini_api_key", None)
 
+    settings["chat_public"] = settings.get("chat_public", "0") == "1"
+
     return jsonify(settings)
 
 
@@ -869,6 +989,9 @@ def admin_update_settings():
     if "referral_bonus_messages" in body:
         set_setting("referral_bonus_messages", str(body["referral_bonus_messages"]))
 
+    if "chat_public" in body:
+        set_setting("chat_public", "1" if body["chat_public"] else "0")
+
     return jsonify({"ok": True})
 
 
@@ -882,4 +1005,4 @@ def admin_clear_gemini_key():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
