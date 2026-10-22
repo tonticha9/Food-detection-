@@ -243,7 +243,7 @@ let currentMethod  = "jiko_kawaida";
 let compressedBlob = null;
 let hasImage       = false;
 
-function compressImage(file, maxSize = 1024, quality = 0.75) {
+function compressImage(file, maxSize = 768, quality = 0.7) {
   return new Promise((resolve, reject) => {
     const img    = new Image();
     const reader = new FileReader();
