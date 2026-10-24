@@ -1024,7 +1024,9 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
     document.querySelectorAll(".admin-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
     $("adminSettingsTab").style.display = btn.dataset.atab === "settings" ? "block" : "none";
     $("adminUsersTab").style.display    = btn.dataset.atab === "users" ? "block" : "none";
+    $("adminAiTab").style.display       = btn.dataset.atab === "ai" ? "block" : "none";
     if (btn.dataset.atab === "users") loadAdminUsers();
+    if (btn.dataset.atab === "ai")    loadAiKnowledge();
   });
 });
 
@@ -1155,6 +1157,103 @@ $("adminUsersList").addEventListener("click", async (e) => {
     await fetch(`/api/admin/users/${delBtn.dataset.id}`, { method: "DELETE", headers });
     toast("🗑 Mtumiaji amefutwa");
     loadAdminUsers();
+  }
+});
+
+/* ================= Admin: Kumbukumbu za AI (tab ya 🧠 AI) ================= */
+let aiItemType = "fact";
+
+const AI_PLACEHOLDERS = {
+  fact: "Mfano: Braiton alizaliwa tarehe ... mwaka ... Kilimanjaro. Alianza kutengeneza app mwaka ...",
+  rule: "Mfano: Mtu akiuliza \"huyu admin ni nani?\" mjibu kwa ufupi kwanza, kisha muulize kama anataka kujua zaidi.",
+};
+
+document.querySelectorAll("#aiTypeChips .chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    aiItemType = chip.dataset.type;
+    document.querySelectorAll("#aiTypeChips .chip").forEach((c) => c.classList.toggle("active", c === chip));
+    $("aiItemInput").placeholder = AI_PLACEHOLDERS[aiItemType];
+  });
+});
+
+function renderAiItems(items) {
+  const list = $("aiItemsList");
+  $("aiItemCount").textContent = items.length;
+  list.innerHTML = "";
+
+  if (items.length === 0) {
+    list.innerHTML = "<p class='empty-msg'>Bado hujamfundisha AI kitu chochote kipya.</p>";
+    return;
+  }
+
+  items.forEach((it) => {
+    const row = document.createElement("div");
+    row.className = "ai-item";
+    row.innerHTML = `
+      <span class="ai-badge ${it.type === "rule" ? "rule" : "fact"}">${it.type === "rule" ? "📜 Sheria" : "🧠 Taarifa"}</span>
+      <p>${esc(it.text)}</p>
+      <button type="button" class="admin-mini-btn admin-delete-btn ai-del-btn" data-id="${esc(it.id)}">Futa</button>`;
+    list.appendChild(row);
+  });
+}
+
+async function loadAiKnowledge() {
+  const headers = await getAuthHeader();
+  const res = await fetch("/api/admin/ai-knowledge", { headers });
+  if (!res.ok) { toast("❌ Imeshindwa kupakia kumbukumbu za AI"); return; }
+  const data = await res.json();
+  $("aiBioInput").value = data.bio || "";
+  renderAiItems(data.items || []);
+}
+
+$("saveAiBioBtn").addEventListener("click", async () => {
+  const bio = $("aiBioInput").value.trim();
+  const ok  = await adminPost("/api/admin/ai-knowledge/bio", { bio });
+  toast(ok ? "✅ Maelezo yamehifadhiwa, AI inakujua zaidi sasa" : "❌ Imeshindwa kuhifadhi");
+  if (ok) loadAiKnowledge();
+});
+
+$("resetAiBioBtn").addEventListener("click", async () => {
+  if (!confirm("Rudisha maelezo ya awali? Mabadiliko uliyoandika kwenye kisanduku hiki yatafutwa.")) return;
+  const ok = await adminPost("/api/admin/ai-knowledge/bio", { bio: "" });
+  toast(ok ? "✅ Yamerudishwa ya awali" : "❌ Imeshindwa");
+  if (ok) loadAiKnowledge();
+});
+
+$("addAiItemBtn").addEventListener("click", async () => {
+  const text = $("aiItemInput").value.trim();
+  if (!text) { toast("✍️ Andika kitu cha kumfundisha AI kwanza"); return; }
+
+  const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
+  const res = await fetch("/api/admin/ai-knowledge/items", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ type: aiItemType, text }),
+  });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) { toast("❌ " + (data.error || "Imeshindwa kuongeza")); return; }
+  $("aiItemInput").value = "";
+  renderAiItems(data.items || []);
+  toast("✅ AI imekumbuka");
+});
+
+$("aiItemsList").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".ai-del-btn");
+  if (!btn) return;
+  if (!confirm("Futa kumbukumbu hii?")) return;
+
+  const headers = await getAuthHeader();
+  const res = await fetch(`/api/admin/ai-knowledge/items/${encodeURIComponent(btn.dataset.id)}`, {
+    method: "DELETE",
+    headers,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) {
+    renderAiItems(data.items || []);
+    toast("🗑 Imefutwa");
+  } else {
+    toast("❌ Imeshindwa kufuta");
   }
 });
 
