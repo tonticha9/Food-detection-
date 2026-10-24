@@ -273,26 +273,34 @@ PRO_RESPONSE_SCHEMA = {
 # =====================================================================
 
 def generate_with_fallback(client, contents, config):
-    """Jaribu models moja baada ya nyingine; 503/429 zinajaribiwa tena."""
+    """Jaribu models moja baada ya nyingine. Kama model inakataa thinking_config
+    (400 INVALID_ARGUMENT), jaribu tena bila hiyo. 503/429 zinajaribiwa tena."""
     last_error = None
     for model in GEMINI_MODELS:
-        for attempt in range(3):
+        cfg = config
+        for attempt in range(4):
             try:
                 response = client.models.generate_content(
                     model=model,
                     contents=contents,
-                    config=config,
+                    config=cfg,
                 )
                 return response, model
             except Exception as e:
                 last_error = e
                 msg = str(e)
-                if ("503" in msg or "429" in msg or "UNAVAILABLE" in msg) and attempt < 2:
+
+                # Model haikubali thinking_config -> ondoa na jaribu tena
+                if "INVALID_ARGUMENT" in msg and getattr(cfg, "thinking_config", None) is not None:
+                    cfg = cfg.model_copy(update={"thinking_config": None})
+                    continue
+
+                # 503/429 ni za muda mfupi -> subiri na jaribu tena
+                if ("503" in msg or "429" in msg or "UNAVAILABLE" in msg) and attempt < 3:
                     time.sleep(2 * (attempt + 1))
                     continue
                 break
     raise Exception(f"Models zote zimeshindwa. Hitilafu ya mwisho: {str(last_error)}")
-
 
 # =====================================================================
 # DATABASE HELPERS
