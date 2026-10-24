@@ -257,6 +257,7 @@
       <div class="admin-tabs">
         <button type="button" class="admin-tab-btn active" data-atab="settings">⚙️ Mipangilio</button>
         <button type="button" class="admin-tab-btn" data-atab="users">👥 Watumiaji</button>
+        <button type="button" class="admin-tab-btn" data-atab="ai">🧠 AI</button>
       </div>
 
       <div id="adminSettingsTab" class="admin-tab-content">
@@ -299,6 +300,33 @@
       <div id="adminUsersTab" class="admin-tab-content" style="display:none;">
         <input type="text" id="adminSearch" class="admin-search" placeholder="🔎 Tafuta jina au email...">
         <div id="adminUsersList"></div>
+      </div>
+
+      <div id="adminAiTab" class="admin-tab-content" style="display:none;">
+
+        <div class="admin-card feature-card">
+          <label class="admin-label">🧑‍💻 Maelezo ya msingi kuhusu wewe (admin)</label>
+          <small class="ai-help">AI inayatumia kukujua. Inajibu kulingana na swali tu, haitoi kila kitu kwa pamoja.</small>
+          <textarea id="aiBioInput" rows="8"></textarea>
+          <button type="button" id="saveAiBioBtn">Hifadhi Maelezo</button>
+          <button type="button" id="resetAiBioBtn" class="admin-secondary-btn">Rudisha ya awali</button>
+        </div>
+
+        <div class="admin-card">
+          <label class="admin-label">➕ Mfundishe AI kitu kipya</label>
+          <small class="ai-help">Chagua aina, andika, kisha ongeza. AI itakumbuka na kuitumia kwa akili kwenye majibu yake.</small>
+          <div id="aiTypeChips" class="chip-row">
+            <button type="button" class="chip active" data-type="fact">🧠 Taarifa / Historia</button>
+            <button type="button" class="chip" data-type="rule">📜 Sheria ya kujibu</button>
+          </div>
+          <textarea id="aiItemInput" rows="3" placeholder="Mfano: Braiton alizaliwa tarehe ... mwaka ..."></textarea>
+          <button type="button" id="addAiItemBtn">Ongeza kwenye Kumbukumbu ya AI</button>
+        </div>
+
+        <div class="admin-card">
+          <label class="admin-label">🗂 Kumbukumbu za AI (<span id="aiItemCount">0</span>)</label>
+          <div id="aiItemsList"></div>
+        </div>
       </div>
     </div>
   </div>
