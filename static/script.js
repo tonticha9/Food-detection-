@@ -16,7 +16,6 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 3000);
 }
 
-/* Orodha yenye animation ya kuingia moja baada ya nyingine */
 function fillList(el, items) {
   el.innerHTML = "";
   (items || []).forEach((item, i) => {
@@ -272,19 +271,13 @@ confirmLogoutBtn.addEventListener("click", () => {
 
 cancelLogoutBtn.addEventListener("click", () => { logoutConfirmModal.style.display = "none"; });
 
-/* ================= Profile / Quota / Admin / Chat visibility ================= */
+/* ================= Profile / Quota / Admin / Chat button ================= */
 const adminPanelBtn = $("adminPanelBtn");
-const chatTabBtn    = $("chatTabBtn");
-const chatAdminBar  = $("chatAdminBar");
-const chatToggleA   = $("chatPublicToggle");
-const chatToggleB   = $("chatPublicToggleInline");
+const chatFab       = $("chatFab");
+const chatPanel     = $("chatPanel");
+const chatToggle    = $("chatPublicToggle");
 
 let userIsAdmin = false;
-
-function syncChatToggles(value) {
-  chatToggleA.checked = !!value;
-  chatToggleB.checked = !!value;
-}
 
 async function loadProfile() {
   try {
@@ -304,11 +297,13 @@ async function loadProfile() {
 
     userIsAdmin = !!data.is_admin;
     adminPanelBtn.style.display = userIsAdmin ? "block" : "none";
-    chatAdminBar.style.display  = userIsAdmin ? "flex" : "none";
-    chatTabBtn.style.display    = data.chat_enabled ? "" : "none";
-    syncChatToggles(!!data.chat_public);
 
-    if (!data.chat_enabled && pages.chat.style.display !== "none") showPage("scan");
+    /* Kitufe cha AI Chat: admin kila wakati, watumiaji wengine ikiwa admin ameruhusu */
+    chatFab.style.display = data.chat_enabled ? "flex" : "none";
+    $("chatBadge").textContent = data.chat_public ? "🌍 Inaonekana kwa watumiaji wote" : "🔒 Wewe (admin) pekee";
+    chatToggle.checked = !!data.chat_public;
+    if (!data.chat_enabled) closeChat();
+
     return data;
   } catch {
     return null;
@@ -340,18 +335,17 @@ const tryAgainBtn  = $("tryAgainBtn");
 const favBtn       = $("favBtn");
 const shareBtn     = $("shareBtn");
 
-let currentData    = null;
-let currentMethod  = "jiko_kawaida";
-let compressedBlob = null;
-let hasImage       = false;
+let currentData     = null;
+let currentMethod   = "jiko_kawaida";
+let selectedFile    = null;   // picha asili aliyochagua mtumiaji
+let compressedBlob  = null;   // picha iliyopunguzwa (ikiwa tayari)
+let compressPromise = null;   // inasubiriwa kama bado inaandaliwa
 
-/* Picha ya ukubwa wowote inapunguzwa kwenye simu kabla ya kutumwa */
+/* Picha ya ukubwa wowote inapunguzwa kwenye simu kabla ya kutumwa (haraka, bila base64) */
 function compressImage(file, maxSize = 768, quality = 0.7) {
   return new Promise((resolve, reject) => {
-    const img    = new Image();
-    const reader = new FileReader();
-    reader.onload  = (e) => { img.src = e.target.result; };
-    reader.onerror = reject;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
     img.onload = () => {
       let { width, height } = img;
       if (width > height && width > maxSize) {
@@ -363,24 +357,32 @@ function compressImage(file, maxSize = 768, quality = 0.7) {
       canvas.width  = width;
       canvas.height = height;
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error("Compression failed"))),
         "image/jpeg",
         quality
       );
     };
-    img.onerror = reject;
-    reader.readAsDataURL(file);
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Image load failed")); };
+    img.src = url;
   });
 }
 
-async function handleFileSelected(file) {
+/* Picha inatambuliwa MARA MOJA - kuandaa ni nyuma ya pazia */
+function handleFileSelected(file) {
   if (!file) return;
+  selectedFile   = file;
+  compressedBlob = null;
+  errorBox.style.display = "none";
+
   preview.src = URL.createObjectURL(file);
-  preview.style.display = "block";
+  preview.style.display    = "block";
   uploadText.style.display = "none";
-  hasImage = true;
-  try { compressedBlob = await compressImage(file); } catch { compressedBlob = file; }
+
+  compressPromise = compressImage(file)
+    .then((blob) => { compressedBlob = blob; return blob; })
+    .catch(() => { compressedBlob = file; return file; });
 }
 
 cameraBtn.addEventListener("click", () => cameraInput.click());
@@ -407,7 +409,7 @@ function stopLoadingAnimation() { clearInterval(loadingInterval); }
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!hasImage || !compressedBlob) {
+  if (!selectedFile) {
     errorBox.textContent   = "❌ Tafadhali chagua au piga picha kwanza";
     errorBox.style.display = "block";
     return;
@@ -419,11 +421,14 @@ form.addEventListener("submit", async (e) => {
   submitBtn.disabled     = true;
   startLoadingAnimation();
 
-  const formData = new FormData();
-  formData.append("image", compressedBlob, "food.jpg");
-  formData.append("lang", currentLang || "sw");
-
   try {
+    /* Kama picha bado inaandaliwa, subiri kidogo badala ya kukataa */
+    const blob = compressedBlob || (await compressPromise) || selectedFile;
+
+    const formData = new FormData();
+    formData.append("image", blob, "food.jpg");
+    formData.append("lang", currentLang || "sw");
+
     const headers  = await getAuthHeader();
     const response = await fetch("/api/identify-food", { method: "POST", headers, body: formData });
 
@@ -573,9 +578,10 @@ tryAgainBtn.addEventListener("click", () => {
   preview.style.display    = "none";
   uploadText.style.display = "block";
   result.style.display     = "none";
-  currentData    = null;
-  compressedBlob = null;
-  hasImage       = false;
+  currentData     = null;
+  selectedFile    = null;
+  compressedBlob  = null;
+  compressPromise = null;
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
@@ -586,7 +592,6 @@ const pages = {
   pro:       $("proPage"),
   history:   $("historyPage"),
   favorites: $("favoritesPage"),
-  chat:      $("chatPage"),
 };
 
 function showPage(key) {
@@ -601,7 +606,6 @@ function showPage(key) {
   });
   if (key === "history")   renderHistory();
   if (key === "favorites") renderFavorites();
-  if (key === "chat" && chatMessages.children.length === 0) chatWelcome();
 }
 
 pageTabs.forEach((btn) => {
@@ -650,9 +654,9 @@ viewModal.addEventListener("click", (e) => {
 
 function openViewModal(entry) {
   entry = entry || {};
-  const n      = entry.nutrition || {};
-  const m1     = entry.cooking_methods?.jiko_kawaida;
-  const m2     = entry.cooking_methods?.njia_ya_kisasa;
+  const n  = entry.nutrition || {};
+  const m1 = entry.cooking_methods?.jiko_kawaida;
+  const m2 = entry.cooking_methods?.njia_ya_kisasa;
 
   let html = `
     <h2>${esc(entry.food_name)}</h2>
@@ -781,7 +785,7 @@ $("proSubmitBtn").addEventListener("click", async () => {
   }
 });
 
-/* ================= AI Chat ================= */
+/* ================= AI Chat (kitufe cha duara + skrini nzima) ================= */
 const chatMessages = $("chatMessages");
 const chatInput    = $("chatInput");
 const chatSendBtn  = $("chatSendBtn");
@@ -790,6 +794,21 @@ let chatHistory = [];
 let chatBusy    = false;
 
 function scrollChat() { chatMessages.scrollTop = chatMessages.scrollHeight; }
+
+function openChat() {
+  chatPanel.style.display = "flex";
+  document.body.style.overflow = "hidden";
+  if (chatMessages.children.length === 0) chatWelcome();
+  scrollChat();
+}
+
+function closeChat() {
+  chatPanel.style.display = "none";
+  document.body.style.overflow = "";
+}
+
+chatFab.addEventListener("click", openChat);
+$("chatCloseBtn").addEventListener("click", closeChat);
 
 function chatWelcome() {
   chatMessages.innerHTML = `
@@ -878,8 +897,8 @@ async function sendChat(text) {
 
     if (res.status === 401) { showAuthModal(); throw new Error("Tafadhali ingia kwanza."); }
     if (res.status === 403) {
-      chatTabBtn.style.display = "none";
-      showPage("scan");
+      chatFab.style.display = "none";
+      closeChat();
       throw new Error(data.error || "Huna ruhusa ya kutumia AI Chat.");
     }
     if (!res.ok) throw new Error(data.error || "Hitilafu imetokea");
@@ -919,25 +938,25 @@ $("chatClearBtn").addEventListener("click", () => {
   chatWelcome();
 });
 
-/* Kitufe cha admin: onyesha / ficha AI Chat kwa watu wote */
+/* ================= Admin helper ================= */
 async function adminPost(path, body) {
   const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
   const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body || {}) });
   return res.ok;
 }
 
-async function onChatToggle(checked) {
+/* Kitufe cha admin (ndani ya Admin Panel pekee): ruhusu AI Chat kwa watu wote */
+chatToggle.addEventListener("change", async () => {
+  const checked = chatToggle.checked;
   const ok = await adminPost("/api/admin/settings", { chat_public: checked });
   if (ok) {
-    syncChatToggles(checked);
-    toast(checked ? "✅ AI Chat sasa inaonekana kwa watu WOTE" : "🔒 AI Chat sasa ni ya admin pekee");
+    $("chatBadge").textContent = checked ? "🌍 Inaonekana kwa watumiaji wote" : "🔒 Wewe (admin) pekee";
+    toast(checked ? "✅ AI Chat sasa inaonekana kwa watu WOTE" : "🔒 AI Chat sasa ni yako (admin) pekee");
   } else {
-    syncChatToggles(!checked);
+    chatToggle.checked = !checked;
     toast("❌ Imeshindwa kubadilisha");
   }
-}
-chatToggleA.addEventListener("change", () => onChatToggle(chatToggleA.checked));
-chatToggleB.addEventListener("change", () => onChatToggle(chatToggleB.checked));
+});
 
 /* ================= About Modal ================= */
 const aboutBtn      = $("aboutBtn");
@@ -1017,7 +1036,7 @@ async function loadAdminSettings() {
   $("currentGeminiKey").textContent = data.gemini_api_key_masked || "-";
   $("defaultLimitInput").value      = data.default_message_limit || 5;
   $("referralBonusInput").value     = data.referral_bonus_messages || 5;
-  syncChatToggles(!!data.chat_public);
+  chatToggle.checked = !!data.chat_public;
 }
 
 $("saveGeminiKeyBtn").addEventListener("click", async () => {
@@ -1059,8 +1078,8 @@ $("saveReferralBonusBtn").addEventListener("click", async () => {
 let adminUsersCache = [];
 
 function renderAdminStats(users) {
-  const used  = users.reduce((s, u) => s + (u.messages_used_today || 0), 0);
-  const refs  = users.reduce((s, u) => s + (u.referral_count || 0), 0);
+  const used = users.reduce((s, u) => s + (u.messages_used_today || 0), 0);
+  const refs = users.reduce((s, u) => s + (u.referral_count || 0), 0);
   $("adminStats").innerHTML = `
     <div class="stat-card"><b>${users.length}</b><small>Watumiaji</small></div>
     <div class="stat-card"><b>${used}</b><small>Matumizi leo</small></div>
