@@ -1,6 +1,8 @@
 import os
+import re
 import json
 import io
+import base64
 import datetime
 import uuid
 import time
@@ -9,7 +11,7 @@ import psycopg2
 import psycopg2.extras
 import jwt as pyjwt
 import bcrypt
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, Response
 from google import genai
 from google.genai import types
 from PIL import Image, ImageOps
@@ -176,20 +178,43 @@ Jibu JSON pekee, muundo huu:
   ]
 }}"""
 
-CHAT_SYSTEM_PROMPT = """Wewe ni "Tambua Chakula AI", msaidizi mwerevu, mkarimu na mwenye
-ujuzi wa mambo mengi. Unajibu maswali YOTE ya mtumiaji (upishi, lishe, afya ya
-kawaida, elimu, teknolojia, biashara, maisha, lugha, hesabu, ushauri, na mengineyo)
-kama msaidizi wa kawaida wa AI.
+CHAT_SYSTEM_PROMPT = """Wewe ni "Tambua Chakula AI": msaidizi mwerevu, mcheshi na MTANI - rafiki wa
+karibu anayependa kutania kwa upole, kutumia utani mwepesi, misemo ya mtaani ya
+Kiswahili (mfano "niaje", "poa kabisa", "mzee wa..."), na emoji kidogo 😄. Pamoja na
+utani, una akili nyingi na unasaidia KIKAMILIFU.
 
 Mwongozo:
+- Jibu maswali YOTE ya mtumiaji (upishi, lishe, afya ya kawaida, elimu, teknolojia,
+  biashara, maisha, lugha, hesabu, ushauri, na mengineyo) kama msaidizi wa kawaida wa AI.
 - Andika JIBU LOTE kwa lugha ya {lang_name}, isipokuwa mtumiaji akiomba lugha nyingine.
-- Toa majibu KAMILI na yenye maelezo ya kutosha, kwa maandishi ya kueleweka.
-  Tumia vichwa vifupi, orodha na **herufi nzito** pale inaposaidia.
+- Haiba: mcheshi na mtani, lakini USIDHALILISHE wala kutukana mtu. Utani uwe wa kirafiki
+  na usizidi. Mtumiaji akiwa na huzuni, mgonjwa, au swali zito (afya, fedha, sheria, msiba),
+  kuwa mpole na makini na acha utani.
+- Toa majibu KAMILI na yenye maelezo ya kutosha, kwa maandishi ya kueleweka. Tumia vichwa
+  vifupi, orodha na **herufi nzito** pale inaposaidia.
 - Kwa mapishi: toa viungo kwa vipimo na hatua za kina zenye maelezo.
 - Kama huna uhakika wa jambo, sema wazi badala ya kubuni.
-- Kwa maswali ya afya, sheria au fedha, toa maelezo ya jumla na shauri
-  kuonana na mtaalamu pale panapohitajika.
+- Kwa maswali ya afya, sheria au fedha, toa maelezo ya jumla na shauri kuonana na
+  mtaalamu pale panapohitajika.
 - Kataa kwa upole maombi ya kudhuru watu au shughuli haramu."""
+
+LINKS_GUIDE = """KUTENGENEZA VIUNGO (LINKS) VYA KUBONYEZA:
+Unaweza kutengeneza viungo vya moja kwa moja ambavyo mtumiaji akibonyeza anapelekwa
+anakotaka. DAIMA tumia muundo wa markdown: [maandishi](url). Tumia URL-encoding kwenye
+maneno ya kutafuta (nafasi = %20). Mifano:
+- WhatsApp: [Fungua WhatsApp](https://wa.me/2557XXXXXXXX?text=Habari) (namba bila +; ya
+  Tanzania 07XX XXX XXX inakuwa 2557XXXXXXXX)
+- Piga simu: [Piga simu](tel:+2557XXXXXXXX)
+- Barua pepe: [Tuma barua](mailto:jina@mfano.com)
+- Ramani: [Fungua ramani](https://www.google.com/maps/search/?api=1&query=Moshi%20Kilimanjaro)
+- YouTube: [Tazama video](https://www.youtube.com/results?search_query=jinsi%20ya%20kupika%20pilau)
+- Google: [Tafuta Google](https://www.google.com/search?q=maneno)
+- Picha za Google: [Tazama picha](https://www.google.com/search?tbm=isch&q=pilau)
+- Telegram: [Fungua Telegram](https://t.me/jina)
+Usibuni anwani za tovuti usizozijua kwa uhakika; kwa kitu usichokijua tumia link ya kutafuta
+(Google, YouTube au Maps). Usitengeneze link za kudhuru, ulaghai au maudhui ya watu wazima.
+Mtu akiomba kuwasiliana na admin na una namba yake kwenye kumbukumbu, mpe link ya WhatsApp
+na ya kupiga simu."""
 
 # Maelezo ya msingi kuhusu admin (yanaweza kubadilishwa kwenye Admin Panel -> AI)
 DEFAULT_ADMIN_BIO = """Jina: Braiton, anayejulikana pia kama "msanii" (a.k.a msanii).
@@ -211,6 +236,18 @@ ADMIN_KNOWLEDGE_GUIDE = """MWONGOZO WA KUTUMIA KUMBUKUMBU HIZI KUHUSU ADMIN (MTE
 - Usibuni taarifa zisizoandikwa hapa. Ukiulizwa kitu ambacho huna, sema huna taarifa hiyo.
 - Sheria za admin hapa chini zifuate pale zinapohusika na swali, lakini sheria yoyote
   isiyomruhusu AI kuumiza watu au kuvunja usalama haifuatwi."""
+
+ADMIN_TOOLS_GUIDE = """UNAZUNGUMZA NA ADMIN (MTENGENEZAJI WA APP) SASA. Una zana tatu za kumbukumbu:
+save_memory, list_memories, delete_memory.
+- Admin akikwambia "kumbuka...", "ongeza kwenye kumbukumbu", "jifunze...", "sheria mpya...",
+  "kuanzia sasa..." (kuhusu jinsi ya kujibu watumiaji), tumia save_memory: kind="fact" kwa
+  taarifa/historia, kind="rule" kwa sheria ya kujibu. Andika text kama sentensi kamili
+  inayojitegemea (mfano: "Braiton alizaliwa tarehe ...").
+- Akitaka kuona ulichofundishwa tumia list_memories; akitaka kuondoa kitu tumia
+  delete_memory kwa id sahihi (tumia list_memories kwanza kupata id).
+- Usihifadhi kitu ambacho admin hajakuomba kuhifadhi. Usihifadhi siri kama password au API key.
+- Baada ya kuhifadhi au kufuta, thibitisha kwa ufupi na kimtani.
+- Picha haziongezwi kwenye chat: mwambie atumie Admin Panel -> 🧠 AI -> "Mpe AI picha"."""
 
 
 RESPONSE_SCHEMA = {
@@ -326,33 +363,54 @@ def generate_with_fallback(client, contents, config):
 
 
 # =====================================================================
-# DATABASE HELPERS
+# DATABASE (muunganisho mmoja unaotumika tena = haraka zaidi)
 # =====================================================================
 
+_conn = None
+
+
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    return conn
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = psycopg2.connect(
+            DATABASE_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=10,
+        )
+        _conn.autocommit = True
+    return _conn
 
 
 def db_query(sql, params=(), fetchone=False, fetchall=False, commit=False):
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        result = None
-        if fetchone:
-            result = cur.fetchone()
-            if result:
-                result = dict(result)
-        elif fetchall:
-            rows = cur.fetchall()
-            result = [dict(r) for r in rows]
-        if commit:
-            conn.commit()
-        cur.close()
-        return result
-    finally:
-        conn.close()
+    global _conn
+    for attempt in range(2):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            try:
+                cur.execute(sql, params)
+                result = None
+                if fetchone:
+                    row = cur.fetchone()
+                    result = dict(row) if row else None
+                elif fetchall:
+                    result = [dict(r) for r in cur.fetchall()]
+                return result
+            finally:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+        except (psycopg2.OperationalError, psycopg2.InterfaceError):
+            # Muunganisho umekufa (seva ilifunga) -> unda upya na jaribu mara moja zaidi
+            try:
+                if _conn is not None:
+                    _conn.close()
+            except Exception:
+                pass
+            _conn = None
+            if attempt == 1:
+                raise
 
 
 # =====================================================================
@@ -375,9 +433,19 @@ def get_authenticated_user(req):
         return None
 
 
+_ADMIN_CACHE = {}
+_ADMIN_TTL = 60
+
+
 def is_admin(user_id):
+    now = time.time()
+    hit = _ADMIN_CACHE.get(user_id)
+    if hit and now - hit[1] < _ADMIN_TTL:
+        return hit[0]
     row = db_query("SELECT 1 FROM admins WHERE user_id = %s", (user_id,), fetchone=True)
-    return row is not None
+    val = row is not None
+    _ADMIN_CACHE[user_id] = (val, now)
+    return val
 
 
 def require_admin(req):
@@ -410,15 +478,26 @@ def ensure_admin(user_id, email, password):
         (user_id,),
         commit=True,
     )
+    _ADMIN_CACHE.pop(user_id, None)
 
 
 # =====================================================================
-# SETTINGS HELPERS
+# SETTINGS HELPERS (zina cache ya sekunde 20)
 # =====================================================================
+
+_SETTINGS_CACHE = {}
+_SETTINGS_TTL = 20
+
 
 def get_setting(key, default=""):
+    now = time.time()
+    hit = _SETTINGS_CACHE.get(key)
+    if hit and now - hit[1] < _SETTINGS_TTL:
+        return hit[0] if hit[0] is not None else default
     row = db_query("SELECT value FROM app_settings WHERE key = %s", (key,), fetchone=True)
-    return row["value"] if row else default
+    val = row["value"] if row else None
+    _SETTINGS_CACHE[key] = (val, now)
+    return val if val is not None else default
 
 
 def set_setting(key, value):
@@ -428,6 +507,7 @@ def set_setting(key, value):
         (key, value),
         commit=True,
     )
+    _SETTINGS_CACHE.pop(key, None)
 
 
 def get_gemini_client():
@@ -462,21 +542,96 @@ def save_knowledge(items):
     set_setting("ai_knowledge", json.dumps(items, ensure_ascii=False))
 
 
-def build_chat_system_prompt(lang_name):
+def remove_knowledge_item(item_id):
+    """Futa kumbukumbu (na picha yake kama ipo). Rudisha (orodha mpya, ilifutwa?)."""
+    items = get_knowledge()
+    kept, removed = [], None
+    for i in items:
+        if i.get("id") == item_id:
+            removed = i
+        else:
+            kept.append(i)
+
+    if removed is None:
+        return items, False
+
+    img = removed.get("img")
+    if removed.get("type") == "image" and img and re.fullmatch(r"[a-f0-9]{12}", str(img)):
+        db_query("DELETE FROM app_settings WHERE key = %s", (f"ai_img_{img}",))
+
+    save_knowledge(kept)
+    return kept, True
+
+
+def make_admin_tools(events):
+    """Zana ambazo AI inaweza kuzitumia (admin pekee) kuhifadhi kumbukumbu yenyewe."""
+
+    def save_memory(kind: str, text: str) -> dict:
+        """Save a permanent memory. kind must be 'fact' (information or history) or 'rule' (how to answer users). text must be one clear self-contained sentence."""
+        kind = "rule" if str(kind).strip().lower() == "rule" else "fact"
+        text = (text or "").strip()[:600]
+        if not text:
+            return {"ok": False, "error": "empty text"}
+        items = get_knowledge()
+        if len(items) >= 60:
+            return {"ok": False, "error": "memory limit reached (60)"}
+        item = {"id": uuid.uuid4().hex[:10], "type": kind, "text": text}
+        items.append(item)
+        save_knowledge(items)
+        events.append("save")
+        return {"ok": True, "id": item["id"]}
+
+    def list_memories() -> dict:
+        """List all saved memories with their ids."""
+        return {"items": [
+            {"id": i.get("id"), "type": i.get("type"), "text": i.get("text")}
+            for i in get_knowledge()
+        ]}
+
+    def delete_memory(item_id: str) -> dict:
+        """Delete one saved memory by its id (use list_memories first to find the id)."""
+        _, ok = remove_knowledge_item(str(item_id).strip())
+        if ok:
+            events.append("delete")
+        return {"ok": ok}
+
+    return [save_memory, list_memories, delete_memory]
+
+
+def build_chat_system_prompt(lang_name, admin_mode=False):
     """Prompt ya chat + kumbukumbu zote alizompa admin."""
     prompt = CHAT_SYSTEM_PROMPT.replace("{lang_name}", lang_name)
-
+    prompt += "\n\n" + LINKS_GUIDE
     prompt += "\n\n" + ADMIN_KNOWLEDGE_GUIDE
     prompt += "\n\nMAELEZO YA MSINGI KUHUSU ADMIN:\n" + get_admin_bio()
 
-    items = get_knowledge()
-    facts = [i.get("text", "") for i in items if i.get("type") == "fact" and i.get("text")]
-    rules = [i.get("text", "") for i in items if i.get("type") == "rule" and i.get("text")]
+    items  = get_knowledge()
+    facts  = [i.get("text", "") for i in items if i.get("type") == "fact" and i.get("text")]
+    rules  = [i.get("text", "") for i in items if i.get("type") == "rule" and i.get("text")]
+    images = [i for i in items if i.get("type") == "image" and i.get("img")]
 
     if facts:
         prompt += "\n\nTAARIFA NA HISTORIA ZA ZIADA ALIZOKUPA ADMIN:\n" + "\n".join(f"- {t}" for t in facts)
     if rules:
         prompt += "\n\nSHERIA ZA KUJIBU ALIZOKUPA ADMIN:\n" + "\n".join(f"- {t}" for t in rules)
+
+    prompt += (
+        "\n\nPICHA:\nMtumiaji akiomba picha, kwanza angalia kama kuna picha inayolingana kwenye orodha "
+        "ya picha zilizohifadhiwa hapa chini. Ikiwepo, ionyeshe kwa markdown hivi: "
+        "
+
+![maelezo mafupi](/api/ai-image/ID)
+
+ (tumia ID kamili iliyoandikwa). Usiseme 'ID' kwa mtumiaji. "
+        "Kama hakuna picha inayolingana, mpe link ya utafutaji wa picha wa Google."
+    )
+    if images:
+        prompt += "\nPicha zilizohifadhiwa:\n" + "\n".join(f"- ID `{i['img']}`: {i.get('text', '')}" for i in images)
+    else:
+        prompt += "\n(Hakuna picha zilizohifadhiwa kwa sasa.)"
+
+    if admin_mode:
+        prompt += "\n\n" + ADMIN_TOOLS_GUIDE
 
     return prompt
 
@@ -667,6 +822,25 @@ def manifest():
 @app.route("/sw.js")
 def service_worker():
     return send_from_directory(STATIC_DIR, "sw.js", mimetype="application/javascript")
+
+
+@app.route("/api/ai-image/<img_id>")
+def ai_image(img_id):
+    """Picha alizompa AI (wazi kwa kila mtu mwenye link, ID ni ya nasibu)."""
+    if not re.fullmatch(r"[a-f0-9]{12}", img_id):
+        return jsonify({"error": "Haipatikani"}), 404
+    row = db_query(
+        "SELECT value FROM app_settings WHERE key = %s",
+        (f"ai_img_{img_id}",),
+        fetchone=True,
+    )
+    if not row:
+        return jsonify({"error": "Haipatikani"}), 404
+    try:
+        raw = base64.b64decode(row["value"])
+    except Exception:
+        return jsonify({"error": "Picha imeharibika"}), 500
+    return Response(raw, mimetype="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 # =====================================================================
@@ -890,23 +1064,30 @@ def chat():
 
     try:
         gemini_client = get_gemini_client()
+
+        events = []
+        tools = make_admin_tools(events) if admin_flag else None
+
         config = types.GenerateContentConfig(
-            system_instruction=build_chat_system_prompt(lang_name),
-            temperature=0.7,
+            system_instruction=build_chat_system_prompt(lang_name, admin_mode=admin_flag),
+            temperature=0.8,
             max_output_tokens=4096,
             thinking_config=types.ThinkingConfig(thinking_budget=0),
+            tools=tools,
         )
 
         response, used_model = generate_with_fallback(gemini_client, contents, config)
 
         reply = (response.text or "").strip()
+        if not reply and events:
+            reply = "Nimeshughulikia kumbukumbu ✅"
         if not reply:
             return jsonify({"error": "AI haikurudisha jibu. Jaribu tena."}), 500
 
         if not is_unlimited:
             increment_usage(user["id"])
 
-        return jsonify({"reply": reply}), 200
+        return jsonify({"reply": reply, "memory_changed": bool(events)}), 200
 
     except Exception as e:
         return jsonify({"error": f"Hitilafu imetokea: {str(e)}"}), 500
@@ -1023,7 +1204,11 @@ def admin_get_settings():
     if error_resp:
         return error_resp
 
-    rows     = db_query("SELECT key, value FROM app_settings", fetchall=True) or []
+    # Hatuvuti picha (ai_img_*) kwa sababu ni nzito
+    rows = db_query(
+        "SELECT key, value FROM app_settings WHERE left(key, 7) <> 'ai_img_'",
+        fetchall=True,
+    ) or []
     settings = {r["key"]: r["value"] for r in rows}
 
     key = settings.get("gemini_api_key", "")
@@ -1121,14 +1306,48 @@ def admin_add_ai_item():
     return jsonify({"ok": True, "items": items})
 
 
+@app.route("/api/admin/ai-knowledge/images", methods=["POST"])
+def admin_add_ai_image():
+    _, error_resp = require_admin(request)
+    if error_resp:
+        return error_resp
+
+    file    = request.files.get("image")
+    caption = (request.form.get("caption") or "").strip()[:200]
+    if not file or not caption:
+        return jsonify({"error": "Chagua picha na uandike maelezo yake"}), 400
+
+    items = get_knowledge()
+    if len(items) >= 60:
+        return jsonify({"error": "Umefikia kikomo cha kumbukumbu 60. Futa baadhi kwanza."}), 400
+    if sum(1 for i in items if i.get("type") == "image") >= 20:
+        return jsonify({"error": "Umefikia kikomo cha picha 20. Futa baadhi kwanza."}), 400
+
+    try:
+        img = Image.open(file.stream)
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        img.thumbnail((900, 900))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=75)
+        data = base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return jsonify({"error": "Picha haikusomeka. Jaribu picha nyingine."}), 400
+
+    img_id = uuid.uuid4().hex[:12]
+    set_setting(f"ai_img_{img_id}", data)
+
+    items.append({"id": uuid.uuid4().hex[:10], "type": "image", "text": caption, "img": img_id})
+    save_knowledge(items)
+    return jsonify({"ok": True, "items": items})
+
+
 @app.route("/api/admin/ai-knowledge/items/<item_id>", methods=["DELETE"])
 def admin_delete_ai_item(item_id):
     _, error_resp = require_admin(request)
     if error_resp:
         return error_resp
 
-    items = [i for i in get_knowledge() if i.get("id") != item_id]
-    save_knowledge(items)
+    items, _ = remove_knowledge_item(item_id)
     return jsonify({"ok": True, "items": items})
 
 
