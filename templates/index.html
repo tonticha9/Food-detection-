@@ -2,7 +2,7 @@
 <html lang="sw">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="color-scheme" content="light only">
   <title>Tambua Chakula - Recipe Finder</title>
   <link rel="manifest" href="/manifest.json">
@@ -11,7 +11,6 @@
 </head>
 <body>
 
-  <div class="aurora"><span></span><span></span><span></span></div>
   <div id="toast" class="toast"></div>
 
   <div id="langModal" class="modal-overlay" style="display:none;">
@@ -76,7 +75,7 @@
           <button type="button" id="galleryBtn">🖼️ Gallery</button>
         </div>
 
-        <button type="submit" id="submitBtn" class="cta">✨ Tambua Chakula</button>
+        <button type="submit" id="submitBtn">✨ Tambua Chakula</button>
       </form>
 
       <div id="loading" style="display:none;">
@@ -134,7 +133,7 @@
       </div>
 
       <textarea id="proIngredients" rows="4" placeholder="Mfano: unga wa ngano, mafuta, sukari, mayai..."></textarea>
-      <button type="button" id="proSubmitBtn" class="cta">✨ Pata Mapishi</button>
+      <button type="button" id="proSubmitBtn">✨ Pata Mapishi</button>
 
       <div id="proLoading" style="display:none;">
         <div class="spinner"></div>
@@ -181,7 +180,8 @@
     <div id="chatMessages" class="chat-messages"></div>
 
     <div class="chat-input-row">
-      <textarea id="chatInput" rows="1" placeholder="Uliza chochote..."></textarea>
+      <textarea id="chatInput" rows="1" placeholder="Uliza chochote..."
+        enterkeyhint="send" autocomplete="off" autocapitalize="sentences" spellcheck="false"></textarea>
       <button type="button" id="chatSendBtn" class="send-btn">➤</button>
     </div>
   </div>
@@ -305,6 +305,11 @@
       <div id="adminAiTab" class="admin-tab-content" style="display:none;">
 
         <div class="admin-card feature-card">
+          <label class="admin-label">💡 Njia rahisi: mwambie AI kwenye chat</label>
+          <small class="ai-help">Fungua kitufe cha 💬 kisha andika mfano: "kumbuka kwamba nilizaliwa tarehe ..." au "sheria mpya: mtu akiuliza X mjibu Y". AI itahifadhi yenyewe, bila kubadilisha code. Hapa chini unaweza kuona, kuongeza au kufuta kumbukumbu kwa mkono.</small>
+        </div>
+
+        <div class="admin-card">
           <label class="admin-label">🧑‍💻 Maelezo ya msingi kuhusu wewe (admin)</label>
           <small class="ai-help">AI inayatumia kukujua. Inajibu kulingana na swali tu, haitoi kila kitu kwa pamoja.</small>
           <textarea id="aiBioInput" rows="8"></textarea>
@@ -314,13 +319,20 @@
 
         <div class="admin-card">
           <label class="admin-label">➕ Mfundishe AI kitu kipya</label>
-          <small class="ai-help">Chagua aina, andika, kisha ongeza. AI itakumbuka na kuitumia kwa akili kwenye majibu yake.</small>
           <div id="aiTypeChips" class="chip-row">
             <button type="button" class="chip active" data-type="fact">🧠 Taarifa / Historia</button>
             <button type="button" class="chip" data-type="rule">📜 Sheria ya kujibu</button>
           </div>
           <textarea id="aiItemInput" rows="3" placeholder="Mfano: Braiton alizaliwa tarehe ... mwaka ..."></textarea>
           <button type="button" id="addAiItemBtn">Ongeza kwenye Kumbukumbu ya AI</button>
+        </div>
+
+        <div class="admin-card">
+          <label class="admin-label">🖼 Mpe AI picha</label>
+          <small class="ai-help">AI itaonyesha picha hii mtumiaji akiomba picha inayolingana na maelezo yake. Mfano maelezo: "Picha ya Braiton akiwa studio".</small>
+          <input type="file" id="aiImageInput" accept="image/*">
+          <input type="text" id="aiImageCaption" placeholder="Maelezo mafupi ya picha">
+          <button type="button" id="addAiImageBtn">Ongeza Picha</button>
         </div>
 
         <div class="admin-card">
@@ -331,6 +343,6 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script src="{{ url_for('static', filename='script.js') }}" defer></script>
 </body>
 </html>
