@@ -806,15 +806,35 @@ let chatBusy    = false;
 /* Skrini inashuka chini TU unapotuma ujumbe wako. Wakati AI inajibu, wewe unascroll mwenyewe. */
 function scrollChatToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
 
+/* Panel ya chat inafuata sehemu inayoonekana ya skrini, ili keyboard isifunike kisanduku cha kuandika */
+function fitChatToViewport() {
+  const vv = window.visualViewport;
+  if (!vv || chatPanel.style.display === "none") return;
+  chatPanel.style.top    = vv.offsetTop + "px";
+  chatPanel.style.bottom = "auto";
+  chatPanel.style.height = vv.height + "px";
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", fitChatToViewport);
+  window.visualViewport.addEventListener("scroll", fitChatToViewport);
+}
+
+chatInput.addEventListener("focus", () => setTimeout(fitChatToViewport, 300));
+
 function openChat() {
   chatPanel.style.display = "flex";
   document.body.style.overflow = "hidden";
   if (chatMessages.children.length === 0) chatWelcome();
+  fitChatToViewport();
   scrollChatToBottom();
 }
 
 function closeChat() {
   chatPanel.style.display = "none";
+  chatPanel.style.height = "";
+  chatPanel.style.top = "";
+  chatPanel.style.bottom = "";
   document.body.style.overflow = "";
 }
 
