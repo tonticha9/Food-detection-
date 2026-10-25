@@ -17,22 +17,21 @@ function toast(msg) {
 }
 
 function fillList(el, items) {
-  el.innerHTML = "";
-  (items || []).forEach((item, i) => {
+  const frag = document.createDocumentFragment();
+  (items || []).forEach((item) => {
     const li = document.createElement("li");
     li.textContent = item;
-    li.style.setProperty("--i", i);
-    el.appendChild(li);
+    frag.appendChild(li);
   });
+  el.innerHTML = "";
+  el.appendChild(frag);
 }
 
 function listHtml(items) {
-  return (items || [])
-    .map((t, i) => `<li style="--i:${i}">${esc(t)}</li>`)
-    .join("");
+  return (items || []).map((t) => `<li>${esc(t)}</li>`).join("");
 }
 
-/* Markdown nyepesi (salama - inaficha HTML kwanza) */
+/* Markdown nyepesi (salama): HTML inafichwa kwanza, links na picha zinaruhusiwa kwa masharti */
 function renderMarkdown(src) {
   const lines = esc(src).split("\n");
   let html = "", inUl = false, inOl = false, inCode = false;
@@ -41,9 +40,21 @@ function renderMarkdown(src) {
     if (inOl) { html += "</ol>"; inOl = false; }
   };
   const inline = (t) =>
-    t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-     .replace(/`([^`]+)`/g, "<code>$1</code>")
-     .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    t
+      /* picha za AI (kutoka kumbukumbu yake pekee) */
+      .replace(/!\[([^\]]*)\]\((\/api\/ai-image\/[a-f0-9]+)\)/g,
+        '<img class="chat-img" src="$2" alt="$1" loading="lazy">')
+      /* links za http/https */
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      /* simu na barua pepe */
+      .replace(/\[([^\]]+)\]\(((?:tel:|mailto:)[^)\s]+)\)/g, '<a href="$2">$1</a>')
+      /* links wazi zisizo na markdown */
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g,
+        '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
 
   for (const raw of lines) {
     const line = raw.trimEnd();
@@ -75,72 +86,26 @@ function renderMarkdown(src) {
   return html;
 }
 
-/* ================= Tap feedback (ishara kila ukibonyeza) ================= */
-function spawnTap(x, y) {
-  [false, true].forEach((second) => {
-    const ring = document.createElement("div");
-    ring.className = "tap-ring" + (second ? " second" : "");
-    ring.style.left = x + "px";
-    ring.style.top  = y + "px";
-    document.body.appendChild(ring);
-    setTimeout(() => ring.remove(), 800);
-  });
-}
-
+/* ================= Ishara ya kubonyeza (nyepesi) ================= */
 document.addEventListener("pointerdown", (e) => {
-  const el = e.target.closest("button, a, label, .list-card, .chip, .switch");
-  if (!el) return;
-  spawnTap(e.clientX, e.clientY);
-  el.classList.remove("tapped");
-  void el.offsetWidth;
-  el.classList.add("tapped");
-  setTimeout(() => el.classList.remove("tapped"), 400);
-  if (navigator.vibrate) { try { navigator.vibrate(12); } catch {} }
+  if (!e.target.closest("button, a, label, .list-card, .chip, .switch")) return;
+  const ring = document.createElement("div");
+  ring.className = "tap-ring";
+  ring.style.left = e.clientX + "px";
+  ring.style.top  = e.clientY + "px";
+  document.body.appendChild(ring);
+  setTimeout(() => ring.remove(), 550);
+  if (navigator.vibrate) { try { navigator.vibrate(10); } catch {} }
 }, { passive: true });
 
 /* ================= Auth State ================= */
 let currentUser = null;
 let currentLang = localStorage.getItem("app_lang") || "";
 
-async function initApp() {
-  const token = localStorage.getItem("app_token");
-  if (token) {
-    try {
-      const res = await fetch("/api/profile", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        currentUser = {
-          id: data.id,
-          email: data.email,
-          user_metadata: { full_name: data.full_name },
-        };
-        bootApp();
-        return;
-      }
-    } catch {}
-    localStorage.removeItem("app_token");
-  }
-  currentUser = null;
-  bootApp();
-}
-
 async function getAuthHeader() {
   const token = localStorage.getItem("app_token");
   if (!token) return {};
   return { Authorization: `Bearer ${token}` };
-}
-
-/* ================= Boot Flow ================= */
-function bootApp() {
-  if (!currentLang) {
-    $("langModal").style.display = "flex";
-  } else if (!currentUser) {
-    showAuthModal();
-  } else {
-    onLoggedIn();
-  }
 }
 
 /* ================= Language ================= */
@@ -230,7 +195,7 @@ authSubmitBtn.addEventListener("click", async () => {
       user_metadata: { full_name: data.user.full_name },
     };
     hideAuthModal();
-    onLoggedIn();
+    await loadProfile();
   } catch (err) {
     authError.textContent   = "❌ " + (err.message || "Hitilafu imetokea");
     authError.style.display = "block";
@@ -277,28 +242,54 @@ const chatFab       = $("chatFab");
 const chatPanel     = $("chatPanel");
 const chatToggle    = $("chatPublicToggle");
 
-let userIsAdmin = false;
+let userIsAdmin         = false;
+let quotaState          = null;
+let profileUnauthorized = false;
+
+function renderQuota() {
+  if (!quotaState) return;
+  $("quotaText").textContent = quotaState.isAdmin
+    ? "👑 Admin - Ratili bila kikomo"
+    : `📊 Umetumia ${quotaState.used}/${quotaState.total} leo`;
+  $("quotaBar").style.display = "block";
+}
+
+/* Hesabu ya matumizi inaongezwa hapa hapa - hakuna ombi la ziada kwa seva */
+function bumpUsage() {
+  if (quotaState && !quotaState.isAdmin) {
+    quotaState.used++;
+    renderQuota();
+  }
+}
 
 async function loadProfile() {
+  profileUnauthorized = false;
   try {
     const headers = await getAuthHeader();
     const res = await fetch("/api/profile", { headers });
+    if (res.status === 401) { profileUnauthorized = true; return null; }
     if (!res.ok) return null;
     const data = await res.json();
 
-    const bar  = $("quotaBar");
-    const text = $("quotaText");
-    if (data.is_admin) {
-      text.textContent = "👑 Admin - Ratili bila kikomo";
-    } else {
-      text.textContent = `📊 Umetumia ${data.messages_used_today}/${data.messages_limit + data.bonus_messages} leo`;
-    }
-    bar.style.display = "block";
+    currentUser = {
+      id: data.id,
+      email: data.email,
+      user_metadata: { full_name: data.full_name },
+    };
+    localStorage.setItem("app_name", data.full_name || "");
+    localStorage.setItem("app_email", data.email || "");
+
+    quotaState = {
+      used: data.messages_used_today,
+      total: data.messages_limit + data.bonus_messages,
+      isAdmin: !!data.is_admin,
+    };
+    renderQuota();
 
     userIsAdmin = !!data.is_admin;
     adminPanelBtn.style.display = userIsAdmin ? "block" : "none";
 
-    /* Kitufe cha AI Chat: admin kila wakati, watumiaji wengine ikiwa admin ameruhusu */
+    /* Kitufe cha AI Chat: admin kila wakati, wengine ikiwa admin ameruhusu */
     chatFab.style.display = data.chat_enabled ? "flex" : "none";
     $("chatBadge").textContent = data.chat_public ? "🌍 Inaonekana kwa watumiaji wote" : "🔒 Wewe (admin) pekee";
     chatToggle.checked = !!data.chat_public;
@@ -310,12 +301,30 @@ async function loadProfile() {
   }
 }
 
-function refreshQuota() { return loadProfile(); }
+/* Programu inaonekana MARA MOJA; wasifu unapakiwa nyuma ya pazia */
+async function initApp() {
+  const token = localStorage.getItem("app_token");
 
-async function onLoggedIn() {
+  if (!currentLang) $("langModal").style.display = "flex";
+
+  if (!token) {
+    currentUser = null;
+    if (currentLang) showAuthModal();
+    return;
+  }
+
+  currentUser = {
+    id: "",
+    email: localStorage.getItem("app_email") || "",
+    user_metadata: { full_name: localStorage.getItem("app_name") || "" },
+  };
+
   await loadProfile();
-  renderHistory();
-  renderFavorites();
+  if (profileUnauthorized) {
+    localStorage.removeItem("app_token");
+    currentUser = null;
+    if (currentLang) showAuthModal();
+  }
 }
 
 /* ================= Elements: Scan Page ================= */
@@ -341,7 +350,7 @@ let selectedFile    = null;   // picha asili aliyochagua mtumiaji
 let compressedBlob  = null;   // picha iliyopunguzwa (ikiwa tayari)
 let compressPromise = null;   // inasubiriwa kama bado inaandaliwa
 
-/* Picha ya ukubwa wowote inapunguzwa kwenye simu kabla ya kutumwa (haraka, bila base64) */
+/* Picha ya ukubwa wowote inapunguzwa kwenye simu kabla ya kutumwa */
 function compressImage(file, maxSize = 768, quality = 0.7) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -458,8 +467,7 @@ form.addEventListener("submit", async (e) => {
     currentData   = data;
     currentMethod = "jiko_kawaida";
     displayResult(data);
-    refreshQuota();
-    renderHistory();
+    bumpUsage();
   } catch (err) {
     errorBox.textContent   = "❌ " + err.message;
     errorBox.style.display = "block";
@@ -485,10 +493,10 @@ function displayResult(data) {
   $("nutFat").textContent        = n.fat || "-";
   $("nutritionNote").textContent = n.nutrition_note || "";
 
-  checkIfFavorited(data.food_name);
+  ensureFavorites().then(() => checkIfFavorited(data.food_name));
   renderMethod(currentMethod);
   result.style.display = "block";
-  result.scrollIntoView({ behavior: "smooth", block: "start" });
+  result.scrollIntoView({ block: "start" });
 }
 
 function renderMethod(methodKey) {
@@ -521,13 +529,20 @@ document.addEventListener("click", (e) => {
   }
 });
 
-/* ================= Favorites ================= */
-let favoritesCache = [];
+/* ================= Favorites (zinapakiwa pale zinapohitajika tu) ================= */
+let favoritesCache  = [];
+let favoritesLoaded = false;
 
 async function loadFavoritesCache() {
   const headers = await getAuthHeader();
   const res     = await fetch("/api/favorites", { headers });
-  favoritesCache = res.ok ? await res.json() : [];
+  favoritesCache  = res.ok ? await res.json() : [];
+  favoritesLoaded = true;
+  return favoritesCache;
+}
+
+async function ensureFavorites() {
+  if (!favoritesLoaded) await loadFavoritesCache();
   return favoritesCache;
 }
 
@@ -539,6 +554,7 @@ function checkIfFavorited(foodName) {
 
 favBtn.addEventListener("click", async () => {
   if (!currentData) return;
+  await ensureFavorites();
   const headers = { ...(await getAuthHeader()), "Content-Type": "application/json" };
   const isFav   = favoritesCache.some((f) => f.food_name === currentData.food_name);
 
@@ -556,7 +572,6 @@ favBtn.addEventListener("click", async () => {
   }
   await loadFavoritesCache();
   checkIfFavorited(currentData.food_name);
-  renderFavorites();
 });
 
 /* ================= Share ================= */
@@ -582,7 +597,7 @@ tryAgainBtn.addEventListener("click", () => {
   selectedFile    = null;
   compressedBlob  = null;
   compressPromise = null;
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo(0, 0);
 });
 
 /* ================= Page Tabs ================= */
@@ -598,11 +613,6 @@ function showPage(key) {
   pageTabs.forEach((b) => b.classList.toggle("active", b.dataset.page === key));
   Object.entries(pages).forEach(([k, el]) => {
     el.style.display = k === key ? "block" : "none";
-    if (k === key) {
-      el.classList.remove("page-in");
-      void el.offsetWidth;
-      el.classList.add("page-in");
-    }
   });
   if (key === "history")   renderHistory();
   if (key === "favorites") renderFavorites();
@@ -613,10 +623,9 @@ pageTabs.forEach((btn) => {
 });
 
 /* ================= History / Favorites Rendering ================= */
-function renderCard(entry, container, index) {
+function renderCard(entry, container) {
   const card = document.createElement("div");
   card.className = "list-card";
-  card.style.setProperty("--i", index);
   card.innerHTML = `<strong>${esc(entry.food_name)}</strong><span class="list-card-origin">${esc(entry.data?.origin || "")}</span>`;
   card.addEventListener("click", () => openViewModal(entry.data));
   container.appendChild(card);
@@ -631,7 +640,7 @@ async function renderHistory() {
   container.innerHTML = "";
   if (list.length === 0) { emptyMsg.style.display = "block"; return; }
   emptyMsg.style.display = "none";
-  list.forEach((entry, i) => renderCard(entry, container, i));
+  list.forEach((entry) => renderCard(entry, container));
 }
 
 async function renderFavorites() {
@@ -641,7 +650,7 @@ async function renderFavorites() {
   container.innerHTML = "";
   if (list.length === 0) { emptyMsg.style.display = "block"; return; }
   emptyMsg.style.display = "none";
-  list.forEach((entry, i) => renderCard(entry, container, i));
+  list.forEach((entry) => renderCard(entry, container));
 }
 
 /* ================= View Modal ================= */
@@ -755,10 +764,10 @@ $("proSubmitBtn").addEventListener("click", async () => {
       return;
     }
 
+    const frag = document.createDocumentFragment();
     data.suggestions.forEach((s, idx) => {
       const card = document.createElement("div");
       card.className = "pro-card";
-      card.style.setProperty("--i", idx);
 
       const ings  = (s.ingredients_list || []);
       const extra = (s.extra_needed || []);
@@ -773,9 +782,10 @@ $("proSubmitBtn").addEventListener("click", async () => {
         ${s.cooking_time ? `<p class="time-pill">⏱ Muda: ${esc(s.cooking_time)}</p>` : ""}
         ${s.tips ? `<p class="tips"><strong>💡 Ushauri:</strong> ${esc(s.tips)}</p>` : ""}
       `;
-      proResults.appendChild(card);
+      frag.appendChild(card);
     });
-    refreshQuota();
+    proResults.appendChild(frag);
+    bumpUsage();
   } catch (err) {
     proError.textContent   = "❌ " + err.message;
     proError.style.display = "block";
@@ -793,13 +803,14 @@ const chatSendBtn  = $("chatSendBtn");
 let chatHistory = [];
 let chatBusy    = false;
 
-function scrollChat() { chatMessages.scrollTop = chatMessages.scrollHeight; }
+/* Skrini inashuka chini TU unapotuma ujumbe wako. Wakati AI inajibu, wewe unascroll mwenyewe. */
+function scrollChatToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
 
 function openChat() {
   chatPanel.style.display = "flex";
   document.body.style.overflow = "hidden";
   if (chatMessages.children.length === 0) chatWelcome();
-  scrollChat();
+  scrollChatToBottom();
 }
 
 function closeChat() {
@@ -811,25 +822,29 @@ chatFab.addEventListener("click", openChat);
 $("chatCloseBtn").addEventListener("click", closeChat);
 
 function chatWelcome() {
+  const adminHint = userIsAdmin
+    ? `<p>👑 Wewe ni admin: niambie "kumbuka ..." nami nitahifadhi kwenye kumbukumbu yangu.</p>`
+    : "";
   chatMessages.innerHTML = `
     <div class="chat-welcome">
       <span class="big">🤖</span>
-      <h4>Habari! Mimi ni Tambua Chakula AI</h4>
+      <h4>Mambo vipi! Mimi ni Tambua Chakula AI 😄</h4>
       <p>Niulize swali lolote - upishi, lishe, elimu, biashara, teknolojia na mengineyo.</p>
+      ${adminHint}
       <div class="chip-row">
         <button type="button" class="chip" data-q="Nipe mapishi kamili ya pilau ya nyama kwa watu 5">🍛 Pilau ya nyama</button>
-        <button type="button" class="chip" data-q="Nieleze faida za kula mboga za majani kila siku">🥬 Faida za mboga</button>
         <button type="button" class="chip" data-q="Nipe mawazo 5 ya biashara ndogo ya chakula">💡 Biashara ya chakula</button>
+        <button type="button" class="chip" data-q="Nipe utani mmoja wa kuchekesha">😂 Nichekeshe</button>
       </div>
     </div>`;
 }
 
-function addBubble(kind, html) {
+function addBubble(kind, html, scroll) {
   const div = document.createElement("div");
   div.className = "msg " + kind;
   div.innerHTML = html;
   chatMessages.appendChild(div);
-  scrollChat();
+  if (scroll) scrollChatToBottom();
   return div;
 }
 
@@ -838,23 +853,8 @@ function addTyping() {
   div.className = "typing";
   div.innerHTML = "<i></i><i></i><i></i>";
   chatMessages.appendChild(div);
-  scrollChat();
+  scrollChatToBottom();
   return div;
-}
-
-/* Jibu linaandikwa taratibu kama mashine ya kuandika */
-function typeInto(el, text, done) {
-  const step = Math.max(6, Math.ceil(text.length / 90));
-  let i = 0;
-  const timer = setInterval(() => {
-    i = Math.min(text.length, i + step);
-    el.innerHTML = renderMarkdown(text.slice(0, i));
-    scrollChat();
-    if (i >= text.length) {
-      clearInterval(timer);
-      if (done) done();
-    }
-  }, 30);
 }
 
 function autoGrow() {
@@ -871,7 +871,7 @@ async function sendChat(text) {
   if (chatHistory.length === 0) chatMessages.innerHTML = "";
 
   chatHistory.push({ role: "user", text });
-  addBubble("user", esc(text).replace(/\n/g, "<br>"));
+  addBubble("user", esc(text).replace(/\n/g, "<br>"), true);
   chatInput.value = "";
   autoGrow();
   const typing = addTyping();
@@ -881,7 +881,7 @@ async function sendChat(text) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers,
-      body: JSON.stringify({ messages: chatHistory, lang: currentLang || "sw" }),
+      body: JSON.stringify({ messages: chatHistory.slice(-20), lang: currentLang || "sw" }),
     });
 
     if (res.status === 429) {
@@ -905,13 +905,21 @@ async function sendChat(text) {
 
     typing.remove();
     chatHistory.push({ role: "model", text: data.reply });
-    const bubble = addBubble("bot", "");
-    typeInto(bubble, data.reply);
-    refreshQuota();
+
+    /* Jibu linaonekana lote mara moja, mwanzo wake ukionekana. Hakuna auto-scroll zaidi. */
+    const bubble = addBubble("bot", renderMarkdown(data.reply), false);
+    chatMessages.scrollTop = Math.max(0, bubble.offsetTop - 12);
+
+    bumpUsage();
+
+    if (data.memory_changed) {
+      toast("🧠 AI imesasisha kumbukumbu zake");
+      if ($("adminAiTab").style.display !== "none") loadAiKnowledge();
+    }
   } catch (err) {
     typing.remove();
     chatHistory.pop();
-    addBubble("bot err", "❌ " + esc(err.message));
+    addBubble("bot err", "❌ " + esc(err.message), true);
   } finally {
     chatBusy = false;
     chatSendBtn.disabled = false;
@@ -1003,7 +1011,7 @@ async function claimReferralBonus() {
     const statusEl = $("referralStatus");
     statusEl.textContent   = `✅ Umepata messages za ziada! Bonus jumla: ${data.bonus_messages}`;
     statusEl.style.display = "block";
-    refreshQuota();
+    loadProfile();
   } catch {}
 }
 
@@ -1025,8 +1033,7 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
     $("adminSettingsTab").style.display = btn.dataset.atab === "settings" ? "block" : "none";
     $("adminUsersTab").style.display    = btn.dataset.atab === "users" ? "block" : "none";
     $("adminAiTab").style.display       = btn.dataset.atab === "ai" ? "block" : "none";
-    if (btn.dataset.atab === "users") loadAdminUsers();
-    if (btn.dataset.atab === "ai")    loadAiKnowledge();
+    if (btn.dataset.atab === "ai") loadAiKnowledge();
   });
 });
 
@@ -1101,14 +1108,14 @@ function renderAdminUsers() {
     return;
   }
 
-  users.forEach((u, i) => {
+  const frag = document.createDocumentFragment();
+  users.forEach((u) => {
     const total   = (u.messages_limit || 0) + (u.bonus_messages || 0);
     const pct     = total ? Math.min(100, Math.round(((u.messages_used_today || 0) / total) * 100)) : 0;
     const initial = esc((u.full_name || u.email || "?").trim().charAt(0).toUpperCase());
 
     const card = document.createElement("div");
     card.className = "admin-user-card";
-    card.style.setProperty("--i", i);
     card.innerHTML = `
       <div class="user-top">
         <div class="avatar">${initial}</div>
@@ -1124,8 +1131,9 @@ function renderAdminUsers() {
         <button type="button" class="admin-mini-btn admin-set-limit-btn" data-id="${esc(u.id)}">Weka</button>
         <button type="button" class="admin-mini-btn admin-delete-btn" data-id="${esc(u.id)}">Futa</button>
       </div>`;
-    container.appendChild(card);
+    frag.appendChild(card);
   });
+  container.appendChild(frag);
 }
 
 async function loadAdminUsers() {
@@ -1186,15 +1194,25 @@ function renderAiItems(items) {
     return;
   }
 
+  const frag = document.createDocumentFragment();
   items.forEach((it) => {
     const row = document.createElement("div");
     row.className = "ai-item";
+
+    let lead;
+    if (it.type === "image") {
+      lead = `<img class="ai-thumb" src="/api/ai-image/${esc(it.img)}" alt="" loading="lazy">`;
+    } else {
+      lead = `<span class="ai-badge ${it.type === "rule" ? "rule" : "fact"}">${it.type === "rule" ? "📜 Sheria" : "🧠 Taarifa"}</span>`;
+    }
+
     row.innerHTML = `
-      <span class="ai-badge ${it.type === "rule" ? "rule" : "fact"}">${it.type === "rule" ? "📜 Sheria" : "🧠 Taarifa"}</span>
-      <p>${esc(it.text)}</p>
+      ${lead}
+      <p>${it.type === "image" ? "🖼 " : ""}${esc(it.text)}</p>
       <button type="button" class="admin-mini-btn admin-delete-btn ai-del-btn" data-id="${esc(it.id)}">Futa</button>`;
-    list.appendChild(row);
+    frag.appendChild(row);
   });
+  list.appendChild(frag);
 }
 
 async function loadAiKnowledge() {
@@ -1236,6 +1254,40 @@ $("addAiItemBtn").addEventListener("click", async () => {
   $("aiItemInput").value = "";
   renderAiItems(data.items || []);
   toast("✅ AI imekumbuka");
+});
+
+/* Mpe AI picha */
+$("addAiImageBtn").addEventListener("click", async () => {
+  const file    = $("aiImageInput").files[0];
+  const caption = $("aiImageCaption").value.trim();
+  if (!file)    { toast("🖼 Chagua picha kwanza"); return; }
+  if (!caption) { toast("✍️ Andika maelezo mafupi ya picha"); return; }
+
+  const btn = $("addAiImageBtn");
+  btn.disabled = true;
+  try {
+    let blob;
+    try { blob = await compressImage(file, 900, 0.75); } catch { blob = file; }
+
+    const fd = new FormData();
+    fd.append("image", blob, "memory.jpg");
+    fd.append("caption", caption);
+
+    const res = await fetch("/api/admin/ai-knowledge/images", {
+      method: "POST",
+      headers: await getAuthHeader(),
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) { toast("❌ " + (data.error || "Imeshindwa kuongeza picha")); return; }
+    $("aiImageInput").value   = "";
+    $("aiImageCaption").value = "";
+    renderAiItems(data.items || []);
+    toast("✅ AI imepokea picha");
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 $("aiItemsList").addEventListener("click", async (e) => {
